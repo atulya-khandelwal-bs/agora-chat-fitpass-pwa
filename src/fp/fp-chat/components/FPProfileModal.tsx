@@ -37,30 +37,42 @@ export default function FPProfileModal({
   const [imageLoading, setImageLoading] = useState<boolean>(true);
   const [imageError, setImageError] = useState<boolean>(false);
 
-  // Fetch dietitian details when modal opens
+  // Fetch when the profile opens for this contact — depend on id only so new Contact references
+  // from the parent do not refetch in a loop.
   useEffect(() => {
-    if (isOpen && selectedContact) {
-      loadDietitianDetails();
-      // Reset image loading state when modal opens
-      setImageLoading(true);
-      setImageError(false);
+    if (!isOpen || !selectedContact?.id) {
+      return;
     }
-  }, [isOpen, selectedContact]);
 
-  const loadDietitianDetails = async (): Promise<void> => {
+    setImageLoading(true);
+    setImageError(false);
+    let cancelled = false;
     setLoading(true);
     setError(null);
 
-    try {
-      const data = await fetchDietitianDetails();
-      setDietitianData(data);
-    } catch (err) {
-      console.error("Error fetching dietitian details:", err);
-      setError("Failed to load dietitian details");
-    } finally {
-      setLoading(false);
-    }
-  };
+    const load = async (): Promise<void> => {
+      try {
+        const data = await fetchDietitianDetails();
+        if (!cancelled) {
+          setDietitianData(data);
+        }
+      } catch (err) {
+        console.error("Error fetching dietitian details:", err);
+        if (!cancelled) {
+          setError("Failed to load dietitian details");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedContact?.id]);
 
   if (!isOpen || !selectedContact) return null;
 

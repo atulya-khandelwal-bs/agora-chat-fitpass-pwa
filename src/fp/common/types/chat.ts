@@ -46,6 +46,9 @@ export interface Message {
   isEdited?: boolean;
   mid?: string; // Message ID from delivery receipt (for editing)
   serverMsgId?: string; // Server message ID for matching edited messages
+  /** From REST history / custom message metadata */
+  targetUserId?: number;
+  chatGroupId?: string;
 }
 
 export interface MealPlanIconsDetails {

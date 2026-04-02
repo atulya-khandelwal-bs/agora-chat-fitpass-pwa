@@ -421,7 +421,11 @@
 .fp-chat-wrapper .messages-container {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
+}
+
+.fp-chat-wrapper .messages-container.messages-container--with-scheduled-banner {
+  margin-top: 50px;
 }
 
 .fp-chat-wrapper .message-wrapper {
@@ -500,6 +504,15 @@
   position: relative;
 }
 
+.fp-chat-wrapper .message-bubble:has(.message-text) {
+  padding: 8px 12px;
+}
+
+/* Audio: flex parent had no width; width:100% on <audio> collapsed the bubble */
+.fp-chat-wrapper .message-bubble:has(.fp-audio) {
+  min-width: 220px;
+}
+
 .fp-chat-wrapper .message-wrapper.incoming .message-bubble {
   background: #e5e7eb;
   margin-left: 8px;
@@ -538,8 +551,7 @@
   font-size: 0.875rem;
   line-height: 1.4;
   text-align: left;
-  padding-left: 0.4rem;
-  padding-right: 0.4rem;
+  padding: 0;
 }
 
 .fp-chat-wrapper .message-wrapper.incoming .message-text {
@@ -1189,7 +1201,7 @@
 
   .fp-chat-wrapper .scheduled-call-banner {
     position: fixed;
-    top: 72px; /* chat-header (~60px) + nav-tabs (~50px) - moved up by 10px */
+    top: 56px; /* below .chat-header (56px); no nav-tabs in this layout */
     left: 0;
     right: 0;
     z-index: 98;
@@ -1197,10 +1209,11 @@
     border-radius: 0;
   }
 
+  /* Scroll region starts below fixed header; extra offset when banner is visible */
   .fp-chat-wrapper .chat-area {
     width: 100%;
     position: fixed;
-    top: 0px; /* chat-header (~60px) + nav-tabs (~50px) */
+    top: 0px;
     left: 0;
     right: 0;
     bottom: 70px; /* message-input-area height */
@@ -1215,7 +1228,6 @@
     overscroll-behavior: contain; /* Prevent scroll chaining to body */
     background: var(--fp-bg);
   }
-
 
 
   .fp-chat-wrapper .chat-area::-webkit-scrollbar {
@@ -1564,7 +1576,10 @@
 }
 
 .fp-chat-wrapper .fp-audio {
-  width: 210px;
+  display: block;
+  width: 240px;
+  max-width: 100%;
+  box-sizing: border-box;
   background: transparent !important;
 }
 
@@ -1587,4 +1602,206 @@
 }
 .fp-chat-wrapper .fp-audio::-webkit-media-controls-cast-button {
   display: none !important;
+}
+
+/*
+ * Outgoing (green) bubbles: invert default black chrome to white on green.
+ * No color-scheme: dark (avoids extra elevation/shadow on native controls).
+ * Strip box shadows so the bar stays flat.
+ */
+.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-enclosure {
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+}
+
+.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-panel {
+  filter: brightness(0) invert(1);
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+}
+
+.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-current-time-display,
+.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-time-remaining-display {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  text-shadow: none !important;
+}
+
+.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-timeline-container,
+.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-volume-slider-container {
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+}
+
+/* ----- Audio recording overlay (below composer on mobile) ----- */
+.fp-chat-wrapper .audio-recording-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  background: var(--fp-bg);
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.fp-chat-wrapper .audio-recording-dotted-rule {
+  width: min(92%, 400px);
+  height: 0;
+  border: none;
+  border-top: 2px dotted #dc4144;
+  margin: 0 auto;
+  opacity: 0.85;
+}
+
+.fp-chat-wrapper .audio-recording-overlay--active {
+  gap: 12px;
+}
+
+.fp-chat-wrapper .audio-recording-waveform-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  max-width: min(100%, 420px);
+  min-height: 36px;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.fp-chat-wrapper .audio-recording-silence-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  height: 28px;
+}
+
+.fp-chat-wrapper .audio-recording-silence-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #dc4144;
+  flex-shrink: 0;
+}
+
+.fp-chat-wrapper .audio-recording-bars {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 0;
+  height: 32px;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, #000 85%, transparent 100%);
+}
+
+.fp-chat-wrapper .audio-recording-bar {
+  width: 3px;
+  min-height: 3px;
+  align-self: center;
+  background: #b91c1c;
+  border-radius: 2px;
+  flex-shrink: 0;
+  transition: height 0.08s ease-out;
+}
+
+.fp-chat-wrapper .audio-recording-bar--idle {
+  opacity: 0.55;
+}
+
+.fp-chat-wrapper .audio-recording-timer-pill {
+  padding: 8px 28px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  background: linear-gradient(90deg, #f9a8d4 0%, #fb7185 45%, #fb923c 100%);
+  box-shadow: 0 2px 8px rgba(220, 65, 68, 0.2);
+}
+
+.fp-chat-wrapper .audio-recording-bottom-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 56px;
+  width: 100%;
+  max-width: 320px;
+  padding-top: 4px;
+}
+
+.fp-chat-wrapper .audio-recording-labeled-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 72px;
+}
+
+.fp-chat-wrapper .audio-recording-action-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+}
+
+.fp-chat-wrapper .audio-recording-circle-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.2s, transform 0.15s;
+}
+
+.fp-chat-wrapper .audio-recording-circle-btn:active {
+  transform: scale(0.96);
+}
+
+.fp-chat-wrapper .audio-recording-circle-btn--red {
+  background: #dc4144;
+}
+
+.fp-chat-wrapper .audio-recording-overlay .audio-recording-circle-btn:hover {
+  opacity: 0.92;
+}
+
+/* Reserve scroll space when composer is hidden (desktop: input is in-flow) */
+@media (min-width: 769px) {
+  .fp-chat-wrapper .chat-interface.voice-recording-active .chat-area {
+    padding-bottom: 200px;
+    box-sizing: border-box;
+  }
+}
+
+@media (max-width: 768px) {
+  .fp-chat-wrapper .audio-recording-overlay {
+    /* Sit above fixed .message-input-area (see .chat-area bottom offset) */
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    z-index: 99;
+  }
+
+  /* Composer hidden while recording: panel flush to bottom, chat uses its height */
+  .fp-chat-wrapper .chat-interface.voice-recording-active .chat-area {
+    bottom: calc(210px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .fp-chat-wrapper .chat-interface.voice-recording-active .audio-recording-overlay {
+    bottom: 0;
+    z-index: 100;
+  }
 }

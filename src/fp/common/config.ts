@@ -17,9 +17,8 @@ interface Config {
   };
   api: {
     backend: string;
-    generateToken: string;
+    getDietitianToken: string;
     generatePresignUrl: string;
-    registerUserEndpoint: string;
     fetchCoaches: string;
     fetchConversations: string;
     fetchMessages: string;
@@ -61,16 +60,12 @@ const config: Config = {
     backend: import.meta.env.VITE_BACKEND_API_URL as string,
 
     // Specific API endpoints (constructed from base URL)
-    get generateToken(): string {
-      return `${this.backend}/api/chat/generate-token`;
+    get getDietitianToken(): string {
+      return `${this.backend}/api/chat/getUserToken`;
     },
 
     get generatePresignUrl(): string {
       return `${this.backend}/api/s3/generate-presign-url`;
-    },
-
-    get registerUserEndpoint(): string {
-      return `${this.backend}/api/chat/register-user`;
     },
 
     get fetchCoaches(): string {
@@ -95,7 +90,7 @@ const config: Config = {
     },
 
     get customMessage(): string {
-      return `${this.backend}/api/chat/send-custom-message`;
+      return `${this.backend}/api/chat/send-custom-message-to-group`;
     },
   },
 
@@ -109,7 +104,7 @@ const config: Config = {
 
   // Token Configuration
   token: {
-    expireInSecs: 3600, // 1 hour
+    expireInSecs: 86400, // 24 hours
   },
 
   // S3 Upload Configuration

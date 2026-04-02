@@ -6,6 +6,7 @@ import type {
   SystemMessageData,
   Product,
 } from "../../common/types/chat";
+import type { ApiMessage } from "../services/chatApi";
 
 interface AgoraMessage {
   id?: string;
@@ -42,6 +43,9 @@ interface AgoraMessage {
   message_type?: string;
   created_at?: string | number;
   created_at_ms?: number;
+  isFromUser?: boolean;
+  target_user_id?: number;
+  chat_group_id?: string;
   [key: string]: unknown;
 }
 
@@ -63,20 +67,6 @@ interface CustomMessageData {
   profilePhoto?: string;
   time?: number | string; // Epoch time in seconds (for call_scheduled/scheduled_call_canceled)
   [key: string]: unknown;
-}
-
-interface ApiMessage {
-  message_id?: string;
-  conversation_id?: string;
-  from_user?: string;
-  to_user?: string;
-  sender_name?: string;
-  sender_photo?: string;
-  message_type?: string;
-  body?: string | object;
-  created_at?: string | number;
-  created_at_ms?: number;
-  chat_type?: string;
 }
 
 interface MealPlanIconsDetails {
@@ -463,6 +453,19 @@ export const formatMessage = (
       msg: bodyContent,
       msgContent: bodyContent,
       data: bodyContent,
+      isFromUser: apiMessageIsFromUser(backendMsg),
+      target_user_id: backendMsg.target_user_id,
+      chat_group_id: backendMsg.chat_group_id,
+      sender_photo: backendMsg.sender_photo,
+      sender_name: backendMsg.sender_name,
+      message_type: backendMsg.message_type,
+      chat_type: backendMsg.chat_type,
+      conversation_id: backendMsg.conversation_id,
+      message_id: backendMsg.message_id,
+      from_user: backendMsg.from_user,
+      to_user: backendMsg.to_user,
+      created_at: backendMsg.created_at,
+      created_at_ms: backendMsg.created_at_ms,
     };
     msg = agoraMsg;
   }
@@ -488,12 +491,17 @@ export const formatMessage = (
   // At this point, msg should be AgoraMessage (converted from ApiMessage if needed)
   const agoraMsg = msg as AgoraMessage;
 
+  const fromCurrentUser =
+    typeof agoraMsg.isFromUser === "boolean"
+      ? agoraMsg.isFromUser
+      : agoraMsg.from === userId;
+
   // Determine avatar: use sender_photo from API if available, otherwise use defaults
   let messageAvatar: string | null = null;
   if (agoraMsg.sender_photo) {
     // Use sender_photo from API message (for both incoming and outgoing)
     messageAvatar = agoraMsg.sender_photo;
-  } else if (agoraMsg.from === userId) {
+  } else if (fromCurrentUser) {
     // Outgoing message from current user - use coach's profile photo
     messageAvatar = coachInfo?.profilePhoto || config.defaults.userAvatar;
   } else {
@@ -503,7 +511,7 @@ export const formatMessage = (
 
   const baseMessage = {
     id: agoraMsg.id || `msg-${Date.now()}-${Math.random()}`,
-    sender: agoraMsg.from === userId ? "You" : agoraMsg.from || "Unknown",
+    sender: fromCurrentUser ? "You" : agoraMsg.from || "Unknown",
     createdAt: new Date(agoraMsg.time || agoraMsg.createdAt || Date.now()),
     timestamp: new Date(
       agoraMsg.time || agoraMsg.createdAt || Date.now()
@@ -511,11 +519,17 @@ export const formatMessage = (
       hour: "2-digit",
       minute: "2-digit",
     }),
-    isIncoming: agoraMsg.from !== userId,
+    isIncoming: !fromCurrentUser,
     peerId,
     avatar: messageAvatar,
     mid: agoraMsg.mid, // Preserve mid for message editing
     serverMsgId: agoraMsg.id, // Preserve server message ID for matching edited messages
+    ...(agoraMsg.target_user_id !== undefined
+      ? { targetUserId: agoraMsg.target_user_id }
+      : {}),
+    ...(agoraMsg.chat_group_id !== undefined
+      ? { chatGroupId: agoraMsg.chat_group_id }
+      : {}),
   };
 
   // Handle custom messages
@@ -1285,13 +1299,19 @@ export const formatMessage = (
   };
 };
 
+function apiMessageIsFromUser(msg: ApiMessage): boolean | undefined {
+  if (msg.isFromUser !== undefined) return msg.isFromUser;
+  if (msg.is_from_user !== undefined) return msg.is_from_user;
+  return undefined;
+}
+
 // Helper function to convert API message format to formatMessage format
 export const convertApiMessageToFormat = (
   apiMsg: ApiMessage
 ): AgoraMessage | null => {
   // Convert API response message to format expected by formatMessage
-  // The API returns: { message_id, conversation_id, from_user, to_user, sender_name, sender_photo, message_type, body, created_at, created_at_ms }
-  // formatMessage expects: { id, from, to, time, type, msg, msgContent, data, body, chat_type, conversation_id, message_id, ... }
+  // The API may return message_id, conversation_id, from/to users, isFromUser, target_user_id, chat_group_id, body, timestamps, etc.
+  // formatMessage expects: { id, from, to, time, type, msg, ... } plus backend fields for avatar / direction when present
 
   // Check if body has a type field to determine if it's a custom message
   let bodyObj: string | object | null | undefined = apiMsg.body;
@@ -1443,6 +1463,9 @@ export const convertApiMessageToFormat = (
     message_type: apiMsg.message_type,
     created_at: apiMsg.created_at,
     created_at_ms: apiMsg.created_at_ms,
+    isFromUser: apiMessageIsFromUser(apiMsg),
+    target_user_id: apiMsg.target_user_id,
+    chat_group_id: apiMsg.chat_group_id,
     // For custom messages, also include the body object in ext.data so extractCustomMessageData can find it
     ...(isCustomMessage && bodyObj ? { ext: { data: bodyObj } } : {}),
   };

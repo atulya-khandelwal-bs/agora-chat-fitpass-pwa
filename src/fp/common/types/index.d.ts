@@ -14,6 +14,7 @@ declare module "agora-chat" {
 
   export interface MessageBody {
     from?: string;
+    chatType?: string;
     to?: string;
     type?: string;
     msg?: string;
@@ -57,6 +58,7 @@ declare namespace AgoraChat {
 
   interface MessageBody {
     from?: string;
+    chatType?: string;
     to?: string;
     type?: string;
     msg?: string;

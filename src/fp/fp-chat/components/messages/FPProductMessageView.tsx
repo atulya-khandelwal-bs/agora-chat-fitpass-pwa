@@ -3,13 +3,11 @@ import React from "react";
 interface FPProductMessageViewProps {
   products: Product[];
   formatCurrency: (amount: number) => string;
-  isIncoming?: boolean;
 }
 
 export default function FPProductMessageView({
   products,
   formatCurrency,
-  isIncoming = false,
 }: FPProductMessageViewProps): React.JSX.Element | null {
   return (
     <div
@@ -29,7 +27,6 @@ export default function FPProductMessageView({
           fontSize: "14px",
           fontWeight: 500,
           color: "#6C7985",
-          marginBottom: "4px",
           textAlign: "left",
         }}
       >

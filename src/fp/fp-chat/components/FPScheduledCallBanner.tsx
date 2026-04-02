@@ -4,16 +4,11 @@ import type { Message } from "../../common/types/chat";
 
 interface FPScheduledCallBannerProps {
   scheduledCall: Message;
-  scheduledCallFromApi?: {
-    call_date_time: number;
-    call_type?: "video" | "audio";
-  } | null;
   onClick?: () => void;
 }
 
 export default function FPScheduledCallBanner({
   scheduledCall,
-  scheduledCallFromApi,
   onClick,
 }: FPScheduledCallBannerProps): React.JSX.Element | null {
   // Extract scheduled time
@@ -125,41 +120,7 @@ export default function FPScheduledCallBanner({
 
   const dateTimeText = formatDateTime(scheduledDate);
 
-  // Check if we're within 5 minutes of the scheduled time
-  const isWithinFiveMinutes = (): boolean => {
-    if (!scheduledCallFromApi?.call_date_time) {
-      // Fallback to scheduledCall time if scheduledCallFromApi is not available
-      if (!scheduledTime) {
-        return false;
-      }
-      const scheduledDateFromTime = new Date(scheduledTime * 1000);
-      const now = new Date();
-      const timeDiff = scheduledDateFromTime.getTime() - now.getTime();
-      const fiveMinutesInMs = 5 * 60 * 1000;
-      return timeDiff > 0 && timeDiff <= fiveMinutesInMs;
-    }
-
-    const scheduledDateFromApi = new Date(
-      scheduledCallFromApi.call_date_time * 1000
-    );
-    const now = new Date();
-
-    // Can't join if scheduled time is in the past
-    if (scheduledDateFromApi <= now) {
-      return false;
-    }
-
-    // Calculate time difference in milliseconds
-    const timeDiff = scheduledDateFromApi.getTime() - now.getTime();
-    const fiveMinutesInMs = 5 * 60 * 1000; // 5 minutes in milliseconds
-
-    // Can join only if within 5 minutes
-    return timeDiff <= fiveMinutesInMs;
-  };
-
-  const canJoinCall = isWithinFiveMinutes();
-  // Only allow onClick if within 5 minutes
-  const handleClick = canJoinCall ? onClick : undefined;
+  const handleClick = onClick;
 
   return (
     <div
@@ -177,7 +138,6 @@ export default function FPScheduledCallBanner({
         boxSizing: "border-box",
         border: "1px solid #E7E9EB",
         height: "50px",
-        top: "56px"
       }}
       onMouseEnter={(e) => {
         if (handleClick) {
@@ -247,8 +207,7 @@ export default function FPScheduledCallBanner({
         </span>
       </div>
 
-      {/* Arrow Icon - Only show if within 5 minutes */}
-      {canJoinCall && handleClick && <ChevronRight size={12} color="#FFFFFF" />}
+      {handleClick && <ChevronRight size={12} color="#FFFFFF" />}
     </div>
   );
 }

@@ -586,14 +586,14 @@ const FPVideoCallingInner = ({
         try {
           await _client.subscribe(user.uid, "video");
           // Wait a bit for track to be available
-          setTimeout(() => {
-            const updatedUser = _client.remoteUsers.find(
-              (u) => u.uid === user.uid
-            );
-            if (updatedUser?.videoTrack) {
-            } else {
-            }
-          }, 300);
+          // setTimeout(() => {
+          //   const updatedUser = _client.remoteUsers.find(
+          //     (u) => u.uid === user.uid
+          //   );
+          //   if (updatedUser?.videoTrack) {
+          //   } else {
+          //   }
+          // },);
         } catch (error: unknown) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
@@ -1021,7 +1021,11 @@ const FPVideoCallingInner = ({
       appid: appId,
       channel,
       token: token || null,
-      uid: typeof uid === "number" ? uid : undefined,
+      uid:
+        (typeof uid === "number" && uid > 0) ||
+        (typeof uid === "string" && uid)
+          ? String(uid)
+          : undefined,
     },
     calling
   );
@@ -1295,9 +1299,8 @@ const FPVideoCallingInner = ({
     try {
       const newToken = await generateRtcToken({
         channelName: channel,
-        uid: uid,
-        expireSecs: 3600,
-        role: "publisher",
+        username: userId ? String(userId) : String(uid),
+        expireInSecs: 7200,
       });
       setToken(newToken);
       isGeneratingTokenRef.current = false;

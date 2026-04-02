@@ -189,6 +189,7 @@ export default function FPGeneralNotificationView({
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
+                  borderRadius: "100px",
                 }}
                 onMouseEnter={(e) => {
                   (e.target as HTMLButtonElement).style.background = hoverColor;

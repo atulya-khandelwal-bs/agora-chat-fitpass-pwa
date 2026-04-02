@@ -6,103 +6,65 @@ import config from "../../common/config.ts";
  * Centralized service for all chat-related API calls
  */
 
-export interface GenerateTokenRequest {
-  username: string;
-  expireInSecs: number;
+export interface GetDietitianTokenRequest {
+  user_id: number;
+  dietitian_id: number;
+  /** Existing group conversation id from the conversation list, or null for a new thread */
+  group_id: string | null;
 }
 
-export interface GenerateTokenResponse {
+export interface GetDietitianTokenResponse {
   token: string;
-  error?: string;
+  group_id: string;
 }
 
 /**
- * Generates Agora Chat token for authentication
- * @param username - User ID/username
- * @param expireInSecs - Token expiration time in seconds
- * @returns Promise with token string (throws error on failure)
+ * Chat login: returns Agora Chat token and group id from the backend.
  */
-export async function generateChatToken(
-  username: string,
-  expireInSecs: number = config.token.expireInSecs
-): Promise<string> {
+export async function getDietitianToken(
+  params: GetDietitianTokenRequest
+): Promise<GetDietitianTokenResponse> {
   try {
-    const response = await fetch(config.api.generateToken, {
+    const response = await fetch(config.api.getDietitianToken, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        username,
-        expireInSecs,
+        user_id: params.user_id,
+        dietitian_id: params.dietitian_id,
+        group_id: params.group_id,
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorData = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
       throw new Error(
-        errorData.error || `Token generation failed: ${response.status}`
+        errorData.error || `getDietitianToken failed: ${response.status}`
       );
     }
 
-    const tokenData: GenerateTokenResponse = await response.json();
-    if (!tokenData.token) {
+    const raw = (await response.json()) as {
+      token?: string;
+      group_id?: string | number;
+    };
+    if (!raw.token) {
       throw new Error("Token not found in response");
     }
-    return tokenData.token;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("Token generation error:", error);
-    throw new Error(`Token generation failed: ${errorMessage}`);
-  }
-}
-
-export interface RegisterUserRequest {
-  username: string;
-}
-
-export interface RegisterUserResponse {
-  success?: boolean;
-  error?: string;
-}
-
-/**
- * Registers a user with Agora Chat service
- * @param username - User ID/username to register
- * @returns Promise with boolean indicating success
- */
-export async function registerUser(username: string): Promise<boolean> {
-  try {
-    const response = await fetch(config.api.registerUserEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ username }),
-    });
-
-    if (response.ok) {
-      await response.json().catch(() => ({})); // Consume response body
-      return true;
-    } else {
-      // User might already be registered
-      const errorData: RegisterUserResponse = await response
-        .json()
-        .catch(() => ({}));
-
-      if (response.status === 400 || response.status === 409) {
-        // User exists, can proceed
-        return true;
-      } else {
-        throw new Error(
-          errorData.error || `Registration failed: ${response.status}`
-        );
-      }
+    const groupId =
+      raw.group_id !== undefined && raw.group_id !== null
+        ? String(raw.group_id)
+        : "";
+    if (!groupId) {
+      throw new Error("group_id not found in response");
     }
+    return { token: raw.token, group_id: groupId };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("Registration error:", error);
-    throw new Error(`Registration failed: ${errorMessage}`);
+    console.error("getDietitianToken error:", error);
+    throw new Error(`getDietitianToken failed: ${errorMessage}`);
   }
 }
 
@@ -177,15 +139,20 @@ export async function uploadFileToS3(
   }
 }
 
+/**
+ * POST `/api/chat/send-custom-message-to-group` body.
+ * `targetUserId` and `receiverId` are the same: dietitian / coach id.
+ */
 export interface SendCustomMessageRequest {
-  conversation_id: string;
-  from_user: string;
-  to_user: string;
-  message_type: string;
-  body: {
-    messageType: string;
-    payload: Record<string, unknown>;
-  };
+  from: string;
+  groupId: string;
+  /** Dietitian id (same as `receiverId`) */
+  targetUserId: string;
+  isFromUser: boolean;
+  /** Dietitian id (same as `targetUserId`) */
+  receiverId: string;
+  type: string;
+  data: Record<string, unknown>;
 }
 
 export interface SendCustomMessageResponse {
@@ -202,9 +169,18 @@ export async function sendCustomMessage(
   request: SendCustomMessageRequest
 ): Promise<SendCustomMessageResponse> {
   try {
+    const body = {
+      from: request.from,
+      groupId: request.groupId,
+      type: request.type,
+      isFromUser: request.isFromUser,
+      targetUserId: request.targetUserId,
+      receiverId: request.receiverId,
+      data: request.data,
+    };
     const { data } = await axios.post<SendCustomMessageResponse>(
       config.api.customMessage,
-      request
+      body
     );
 
     return data;
@@ -220,6 +196,9 @@ export interface ApiMessage {
   conversation_id?: string;
   from_user?: string;
   to_user?: string;
+  isFromUser?: boolean;
+  /** Some backends return snake_case */
+  is_from_user?: boolean;
   sender_name?: string;
   sender_photo?: string;
   message_type?: string;
@@ -227,6 +206,8 @@ export interface ApiMessage {
   created_at?: string | number;
   created_at_ms?: number;
   chat_type?: string;
+  target_user_id?: number;
+  chat_group_id?: string;
 }
 
 export interface FetchMessagesRequest {

@@ -29,7 +29,6 @@ interface MessageHandlersOptions {
     description: string;
   }) => void;
   clientRef: React.RefObject<unknown> | (() => unknown) | { current?: unknown };
-  registerUser?: (username: string) => Promise<boolean>;
 }
 
 /**
@@ -74,7 +73,6 @@ export function createMessageHandlers({
   handleIncomingCall,
   onPresenceStatus,
   clientRef,
-  registerUser,
 }: MessageHandlersOptions): {
   onConnected: () => void;
   onDisconnected: () => void;
@@ -575,6 +573,18 @@ export function createMessageHandlers({
       }
     },
     onCustomMessage: (msg: MessageBody) => {
+      console.log("📨 [onCustomMessage] Received custom message:", {
+        from: msg.from,
+        to: msg.to,
+        chatType: msg.chatType,
+        type: msg.type,
+        timestamp: new Date().toISOString(),
+        hasBody: !!msg.body,
+        hasExt: !!msg.ext,
+        hasCustomExts: !!msg.customExts,
+        hasV2CustomExts: !!msg["v2:customExts"],
+      });
+
       // Ignore messages from blocked UIDs (Recorder and RTST Agent)
       const fromId = msg.from || "";
       if (isBlockedUID(fromId)) {
@@ -1114,55 +1124,8 @@ export function createMessageHandlers({
     },
     onError: async (e: { message: string; code?: string; type?: string }): Promise<void> => {
       const errorMessage = e.message || "";
-      const errorCode = e.code || e.type || "";
-      
-      // Check if it's a usernotfound error (case insensitive)
-      const isUserNotFound = 
-        errorMessage.toLowerCase().includes("usernotfound") ||
-        errorMessage.toLowerCase().includes("user not found") ||
-        errorMessage.toLowerCase().includes("user_not_found") ||
-        errorCode.toLowerCase() === "usernotfound" ||
-        errorCode === "404";
-
-      if (isUserNotFound && registerUser && userId) {
-        // Step 3: User not found - register the user
-        addLog(`User not found in Agora Chat. Registering user ${userId}...`);
-        
-        try {
-          await registerUser(userId);
-          addLog(`User ${userId} registered successfully. Retrying login...`);
-          
-          // Step 4: Retry login after registration
-          const client = getClientRef() as {
-            open?: (options: {
-              user: string;
-              accessToken: string;
-            }) => Promise<void> | void;
-          } | null;
-          
-          if (client && typeof client.open === "function" && generateNewToken) {
-            // Generate a new token and retry login
-            const newToken = await generateNewToken();
-            if (newToken) {
-              const retryPromise = client.open({ user: userId, accessToken: newToken });
-              if (retryPromise && typeof retryPromise.then === "function") {
-                await retryPromise;
-              }
-            }
-          }
-        } catch (registerError) {
-          const registerErrorMessage = registerError instanceof Error 
-            ? registerError.message 
-            : String(registerError);
-          addLog(`Registration failed: ${registerErrorMessage}`);
-          console.error("Registration error:", registerError);
-          setIsLoggingIn(false);
-        }
-      } else {
-        // Other errors - normal error handling
-        addLog(`Error: ${errorMessage}`);
-        setIsLoggingIn(false);
-      }
+      addLog(`Error: ${errorMessage}`);
+      setIsLoggingIn(false);
     },
     onModifiedMessage: (msg: MessageBody): void => {
       // Handle edited messages

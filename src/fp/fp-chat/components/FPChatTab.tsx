@@ -15,6 +15,8 @@ interface FPChatTabProps {
     videoUrl: string,
     callType?: "video_call" | "voice_call"
   ) => void;
+  /** When true, matches visible `FPScheduledCallBanner` — extra top spacing for messages + date tag */
+  hasScheduledCallBanner?: boolean;
 }
 
 export default function FPChatTab({
@@ -25,6 +27,7 @@ export default function FPChatTab({
   openImageViewer,
   currentlyPlayingAudioRef,
   onPlayVideo,
+  hasScheduledCallBanner = false,
 }: FPChatTabProps): React.JSX.Element {
   const [visibleDate, setVisibleDate] = useState<string | null>(null);
   const [showTag, setShowTag] = useState<boolean>(false);
@@ -202,14 +205,17 @@ export default function FPChatTab({
   const visibleDateLabel = getVisibleDateLabel();
 
   return (
-    <div className="messages-container" ref={containerRef}>
+    <div
+      className={`messages-container${hasScheduledCallBanner ? " messages-container--with-scheduled-banner" : ""}`}
+      ref={containerRef}
+    >
       {/* Floating Date Tag */}
       {visibleDateLabel && (
         <div
           className="floating-date-tag"
           style={{
             position: "sticky",
-            top: "1rem",
+            top: hasScheduledCallBanner ? "6rem" : "3.2rem",
             zIndex: 100,
             display: "flex",
             justifyContent: "center",
@@ -246,6 +252,10 @@ export default function FPChatTab({
         (() => {
           const items: React.JSX.Element[] = [];
           let lastDayKey: string | null = null;
+          /** Last regular chat bubble direction; reset after day separator or system so spacing restarts */
+          let lastBubbleIncoming: boolean | null = null;
+          /** So the message after a products row gets 12px separation */
+          let lastRowWasProducts = false;
 
           // Find the last non-system message to determine which message should show the SVG
           let lastNonSystemMessageIndex = -1;
@@ -282,7 +292,7 @@ export default function FPChatTab({
                     display: "flex",
                     alignItems: "center",
                     gap: "0.5rem",
-                    margin: "0.75rem 0",
+                    margin: "20px 0",
                     color: "#6b7280",
                     fontSize: "0.75rem",
                   }}
@@ -292,12 +302,30 @@ export default function FPChatTab({
                   <div style={{ flex: 1, height: 1, background: "#e5e7eb" }} />
                 </div>
               );
+              lastBubbleIncoming = null;
+              lastRowWasProducts = false;
             }
 
             if (msg.messageType === "system" && msg.system) {
               items.push(<FPSystemMessage key={msg.id} msg={msg} />);
+              lastBubbleIncoming = null;
+              lastRowWasProducts = false;
             } else {
               const isLastMessage = index === lastNonSystemMessageIndex;
+              const stackMarginTopPx =
+                lastBubbleIncoming === null
+                  ? 0
+                  : lastBubbleIncoming === msg.isIncoming
+                    ? 4
+                    : 12;
+              /* Products: marginTop 12 below prior bubble; marginBottom 12 on wrapper — next row top 0 to avoid doubling */
+              const effectiveStackMarginTopPx = lastRowWasProducts
+                ? 0
+                : lastBubbleIncoming !== null && msg.messageType === "products"
+                  ? 12
+                  : stackMarginTopPx;
+              lastBubbleIncoming = msg.isIncoming;
+              lastRowWasProducts = msg.messageType === "products";
               items.push(
                 <FPMessageBubble
                   key={msg.id}
@@ -307,6 +335,10 @@ export default function FPChatTab({
                   formatCurrency={formatCurrency}
                   onPlayVideo={onPlayVideo}
                   isLastMessage={isLastMessage}
+                  stackMarginTopPx={effectiveStackMarginTopPx}
+                  stackMarginBottomPx={
+                    msg.messageType === "products" ? 12 : undefined
+                  }
                 />
               );
             }

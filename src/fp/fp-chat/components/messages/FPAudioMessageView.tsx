@@ -20,10 +20,9 @@ export default function FPAudioMessageView({
       }}
     >
       <audio
-      className="fp-audio"
+        className="fp-audio"
         controls
         src={audioUrl}
-        style={{ width: 210 }}
         onPlay={(e) => {
           // Pause the previously playing audio if any
           if (

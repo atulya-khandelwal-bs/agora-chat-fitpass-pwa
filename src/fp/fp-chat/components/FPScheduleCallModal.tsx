@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
-import axios from "axios";
 import { X, Phone, Calendar } from "lucide-react";
+
+const MODAL_FONT =
+  '"Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+const C1 = "#0A1F34";
+const C2 = "#6C7985";
+const C4 = "#E7E9EB";
+const BRAND_RED = "#DC4144";
+const GREEN = "#109310";
+const TOPIC_BORDER = "rgba(10, 31, 52, 0.08)";
+const MODAL_PAD_X = "calc(20px + env(safe-area-inset-left, 0px))";
+const MODAL_PAD_RIGHT = "calc(20px + env(safe-area-inset-right, 0px))";
 import type { Contact } from "../../common/types/chat";
 import config from "../../common/config.ts";
 import {
@@ -8,6 +18,7 @@ import {
   scheduleCallWithDietitian,
   type DietitianApiResponse,
 } from "../services/dietitianApi";
+import { sendCustomMessage } from "../services/chatApi";
 
 interface FPScheduleCallModalProps {
   isOpen: boolean;
@@ -20,6 +31,10 @@ interface FPScheduleCallModalProps {
   ) => void;
   selectedContact: Contact | null;
   userId: string;
+  /** Dietitian id — same value for `targetUserId` and `receiverId` on send-custom-message. */
+  dietitianId: string;
+  /** Agora group id — required to notify chat when scheduling. */
+  groupId: string | null;
   scheduledCallFromApi?: {
     date: string;
     start_time: string;
@@ -35,6 +50,8 @@ export default function FPScheduleCallModal({
   onSchedule,
   selectedContact,
   userId,
+  dietitianId,
+  groupId,
   scheduledCallFromApi,
   onCancelCall,
 }: FPScheduleCallModalProps): React.JSX.Element | null {
@@ -48,32 +65,38 @@ export default function FPScheduleCallModal({
   const [scheduling, setScheduling] = useState<boolean>(false);
   const scrollableContentRef = useRef<HTMLDivElement>(null);
 
-  const loadDietitianDetails = async (): Promise<void> => {
-    if (!selectedContact) return;
-
-    setLoading(true);
-    try {
-      // Use today's date for initial API call
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const callDate = Math.floor(today.getTime() / 1000);
-
-      const data = await fetchDietitianDetails(callDate);
-      setDietitianData(data);
-    } catch (err) {
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Fetch dietitian details when modal opens (only once, not on date change)
-  // Also fetch if we need to show scheduled call confirmation
+  // Fetch when the modal opens for this contact — use contact id only so parent re-renders
+  // (new Contact object references) and scheduled-call polling do not retrigger this API in a loop.
   useEffect(() => {
-    if (isOpen && selectedContact) {
-      loadDietitianDetails();
+    if (!isOpen || !selectedContact?.id) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, selectedContact, scheduledCallFromApi]);
+
+    let cancelled = false;
+    setLoading(true);
+    const load = async (): Promise<void> => {
+      try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const callDate = Math.floor(today.getTime() / 1000);
+        const data = await fetchDietitianDetails(callDate);
+        if (!cancelled) {
+          setDietitianData(data);
+        }
+      } catch {
+        // keep prior dietitianData on failure
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedContact?.id]);
 
   // Available topics from API only
   const topics = dietitianData?.result?.tags || [];
@@ -322,19 +345,21 @@ export default function FPScheduleCallModal({
         start_time: selectedTime,
       });
 
-      // Send custom message for call scheduled (same payload structure as scheduled_call_canceled)
-      if (selectedContact) {
+      if (selectedContact && groupId) {
         try {
-          await axios.post(config.api.customMessage, {
+          await sendCustomMessage({
             from: userId,
-            to: selectedContact.id,
+            groupId,
+            targetUserId: dietitianId,
+            isFromUser: false,
+            receiverId: dietitianId,
             type: "call_scheduled",
             data: {
               type: "call_scheduled",
-              time: call_date_time, // Unix timestamp in seconds
+              time: call_date_time,
             },
           });
-        } catch (error) {
+        } catch {
           // Don't block the scheduling flow if this fails
         }
       }
@@ -398,7 +423,9 @@ export default function FPScheduleCallModal({
     }
   };
 
-  const hasDateAndTime = selectedTime !== "";
+  // Time must belong to the currently selected date (stale time from another date must not show topics/footer state)
+  const hasDateAndTime =
+    selectedTime !== "" && timeSlots.includes(selectedTime);
 
   // Format scheduled date and time for display
   const formatScheduledDateTime = (): string => {
@@ -482,11 +509,12 @@ export default function FPScheduleCallModal({
             left: 0,
             right: 0,
             background: "#FFFFFF",
-            borderTopLeftRadius: "20px",
-            borderTopRightRadius: "20px",
+            borderTopLeftRadius: "16px",
+            borderTopRightRadius: "16px",
             zIndex: 9999,
             display: "flex",
             flexDirection: "column",
+            fontFamily: MODAL_FONT,
             animation: "slideUpFromBottom 0.3s ease-out",
             overflow: "hidden",
             maxHeight: "90%",
@@ -494,85 +522,98 @@ export default function FPScheduleCallModal({
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header with Close Button */}
+          {/* Header — Figma action bar 56px */}
           <div
             style={{
               display: "flex",
               justifyContent: "flex-end",
-              padding: "1rem 1.5rem",
-              borderBottom: "1px solid #e5e7eb",
+              alignItems: "center",
+              minHeight: "56px",
+              paddingTop: "12px",
+              paddingBottom: "12px",
+              paddingLeft: MODAL_PAD_X,
+              paddingRight: MODAL_PAD_RIGHT,
+              boxSizing: "border-box",
             }}
           >
             <button
+              type="button"
               onClick={onClose}
               style={{
                 background: "none",
                 border: "none",
                 cursor: "pointer",
-                padding: "0.5rem",
+                width: "32px",
+                height: "32px",
+                padding: 0,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "#6b7280",
+                color: C1,
               }}
+              aria-label="Close"
             >
-              <X size={24} />
+              <X size={18} strokeWidth={1.5} />
             </button>
           </div>
 
           {/* Content */}
           <div
             style={{
-              padding: "2rem 1.5rem",
+              paddingTop: "24px",
+              paddingBottom: "24px",
+              paddingLeft: MODAL_PAD_X,
+              paddingRight: MODAL_PAD_RIGHT,
               display: "flex",
               flexDirection: "column",
-              gap: "1.5rem",
+              gap: "16px",
             }}
           >
-            {/* Scheduled Call Message */}
             <div
               style={{
-                fontSize: "16px",
-                color: "#111827",
-                lineHeight: "1.5",
+                fontSize: "14px",
+                fontWeight: 400,
+                color: C1,
+                lineHeight: 1.4285714285714286,
                 textAlign: "left",
               }}
             >
               Your call has been scheduled with{" "}
-              <strong>
-                {" "}
+              <strong style={{ fontWeight: 700 }}>
                 {dietitianName} at {scheduledDateTimeText}
               </strong>
             </div>
 
-            {/* Cancel Call Button */}
             {onCancelCall && (
               <button
+                type="button"
                 onClick={async () => {
                   try {
                     await onCancelCall();
                     onClose();
-                  } catch (error) {
-                    // You might want to show an error message to the user here
+                  } catch {
+                    // optional error UI
                   }
                 }}
                 style={{
                   width: "100%",
-                  padding: "0.875rem 2rem",
+                  padding: "14px 24px",
                   border: "none",
-                  borderRadius: "8px",
-                  backgroundColor: "#DC4144",
+                  borderRadius: "100px",
+                  backgroundColor: BRAND_RED,
                   color: "#ffffff",
-                  fontSize: "16px",
-                  fontWeight: 600,
+                  fontFamily: MODAL_FONT,
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  lineHeight: 1,
                   cursor: "pointer",
                   transition: "background-color 0.2s",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#b91c1c";
+                  e.currentTarget.style.backgroundColor = "#c53a3d";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "#dc2626";
+                  e.currentTarget.style.backgroundColor = BRAND_RED;
                 }}
               >
                 Cancel Call
@@ -630,11 +671,12 @@ export default function FPScheduleCallModal({
           left: 0,
           right: 0,
           background: "#FFFFFF",
-          borderTopLeftRadius: "20px",
-          borderTopRightRadius: "20px",
+          borderTopLeftRadius: "16px",
+          borderTopRightRadius: "16px",
           zIndex: 9999,
           display: "flex",
           flexDirection: "column",
+          fontFamily: MODAL_FONT,
           animation: "slideUpFromBottom 0.3s ease-out",
           overflow: "hidden",
           maxHeight: "90%",
@@ -642,68 +684,79 @@ export default function FPScheduleCallModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header with Close Button */}
+        {/* Header — Figma action bar 56px */}
         <div
           style={{
             display: "flex",
             justifyContent: "flex-end",
-            padding: "1rem 1.5rem",
-            height: "56px",
+            alignItems: "center",
+            minHeight: "56px",
+            paddingTop: "12px",
+            paddingBottom: "12px",
+            paddingLeft: MODAL_PAD_X,
+            paddingRight: MODAL_PAD_RIGHT,
+            boxSizing: "border-box",
           }}
         >
           <button
+            type="button"
             onClick={onClose}
             style={{
               background: "none",
               border: "none",
               cursor: "pointer",
-              padding: "0.5rem",
+              width: "32px",
+              height: "32px",
+              padding: 0,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#6b7280",
+              color: C1,
             }}
+            aria-label="Close"
           >
-            <X size={24} />
+            <X size={18} strokeWidth={1.5} />
           </button>
         </div>
 
-        {/* Scrollable Content */}
+        {/* Scrollable Content — horizontal inset 20px (Figma) */}
         <div
           ref={scrollableContentRef}
           style={{
             flex: 1,
             overflowY: "auto",
-            paddingBottom: "1rem",
-            marginTop: "-25px"
+            paddingBottom: "16px",
+            paddingLeft: MODAL_PAD_X,
+            paddingRight: MODAL_PAD_RIGHT,
+            marginTop: "-26px",
           }}
         >
-          {/* Profile Picture with Phone Icon and Loading Spinner */}
           <div
             style={{
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              marginBottom: "2rem",
+              marginBottom: "16px",
             }}
           >
+            {/* Avatar 56×56, dashed ring 2px #109310 (Figma) */}
             <div
               style={{
                 position: "relative",
-                width: "80px",
-                height: "80px",
-                marginBottom: "1.5rem",
+                width: "56px",
+                height: "56px",
+                marginBottom: "16px",
               }}
             >
-              {/* Profile picture with dashed green border */}
               <div
                 style={{
-                  width: "80px",
-                  height: "80px",
+                  width: "56px",
+                  height: "56px",
                   borderRadius: "50%",
-                  border: "3px dashed #109310",
-                  padding: "3px",
+                  border: `2px dashed ${GREEN}`,
+                  boxSizing: "border-box",
                   position: "relative",
+                  overflow: "hidden",
                 }}
               >
                 <img
@@ -721,80 +774,80 @@ export default function FPScheduleCallModal({
                     if (target.src !== config.defaults.avatar) {
                       target.src = config.defaults.avatar;
                     } else {
-                      // If default avatar also fails, hide the image
                       target.style.display = "none";
                     }
                   }}
                 />
               </div>
-              {/* Green phone icon in bottom right */}
               <div
                 style={{
                   position: "absolute",
-                  bottom: "0",
-                  right: "0",
-                  width: "28px",
-                  height: "28px",
+                  right: "-2px",
+                  bottom: "-2px",
+                  width: "20px",
+                  height: "20px",
                   borderRadius: "50%",
-                  backgroundColor: "#109310",
+                  backgroundColor: GREEN,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  border: "3px solid #FFFFFF",
-                  boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
+                  border: "2px solid #FFFFFF",
+                  boxSizing: "border-box",
                 }}
               >
-                <Phone size={14} color="#FFFFFF" />
+                <Phone size={12} color="#FFFFFF" strokeWidth={2} />
               </div>
             </div>
 
-            {/* Title */}
             <h2
               style={{
                 margin: 0,
                 fontSize: "24px",
                 fontWeight: 700,
-                color: "#111827",
+                color: C1,
                 textAlign: "center",
-                marginBottom: "0.5rem",
-                lineHeight: "1.2",
+                lineHeight: 1.2,
+                maxWidth: "236px",
               }}
             >
-              Schedule a <span style={{ color: "#109310" }}>call</span> with{" "}
+              Schedule a call with
               <br />
               {selectedContact.name}
             </h2>
 
-            {/* Description */}
             <p
               style={{
                 margin: 0,
+                marginTop: "12px",
                 fontSize: "14px",
-                color: "#6C7985",
+                fontWeight: 400,
+                color: C2,
+                lineHeight: 1.4285714285714286,
                 textAlign: "center",
+                maxWidth: "320px",
               }}
             >
-              Get 1-on-1 help with your diet and ask questions.
+              Get 1-on-1 help with your diet and ask questions
             </p>
           </div>
 
-          {/* Date Selection */}
+          {/* Date row — cells 69×56, divider C4 */}
           <div
             style={{
-              marginBottom: "1rem",
+              marginBottom: "16px",
             }}
           >
             <div
               style={{
                 display: "flex",
-                gap: "0.5rem",
+                gap: "0",
                 overflowX: "auto",
                 overflowY: "hidden",
-                paddingBottom: "0.25rem",
+                paddingBottom: "0",
                 scrollbarWidth: "none",
                 msOverflowStyle: "none",
                 WebkitOverflowScrolling: "touch",
-                borderBottom: "1px solid #E7E9EB",
+                borderBottom: `1px solid ${C4}`,
                 position: "relative",
               }}
               onWheel={(e) => {
@@ -813,77 +866,77 @@ export default function FPScheduleCallModal({
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
+                      flexShrink: 0,
                     }}
                   >
                     <button
+                      type="button"
                       onClick={() => setSelectedDate(dateItem.date)}
                       style={{
                         width: "69px",
                         height: "56px",
                         padding: 0,
                         border: "none",
-                        borderRadius: "8px",
+                        borderRadius: 0,
                         backgroundColor: "transparent",
                         cursor: "pointer",
-                        minWidth: "fit-content",
                         display: "flex",
                         flexDirection: "column",
                         alignItems: "center",
-                        gap: "0.25rem",
-                        transition: "all 0.2s",
+                        justifyContent: "flex-start",
+                        gap: "2px",
+                        transition: "opacity 0.2s",
                         position: "relative",
+                        fontFamily: MODAL_FONT,
                       }}
                     >
-                      {/* Day of the week */}
                       <div
                         style={{
                           fontSize: "10px",
                           fontWeight: 700,
-                          color: "#0A1F34",
+                          color: C1,
                           opacity: 0.6,
                           textTransform: "uppercase",
-                          letterSpacing: "0.5px",
+                          letterSpacing: "0.06em",
+                          lineHeight: 1.2,
                         }}
                       >
                         {dateItem.dayLabel}
                       </div>
-                      {/* Date number */}
                       <div
                         style={{
                           fontSize: "14px",
                           fontWeight: 700,
-                          color: "#0A1F34",
-                          lineHeight: "1",
+                          color: C1,
+                          lineHeight: 1.1428571428571428,
+                          opacity: isSelected ? 1 : 0.8,
                         }}
                       >
                         {dateItem.dayNumber}
                       </div>
-                      {/* Month with underline for selected */}
                       <div
                         style={{
                           fontSize: "12px",
                           fontWeight: 600,
-                          color: "#0A1F34",
-                          position: "relative",
-                          paddingBottom: "2px",
-
-                          transition: "border-color 0.2s",
+                          color: C1,
+                          lineHeight: 1.1666666666666667,
+                          opacity: isSelected ? 1 : 0.8,
+                          marginTop: "2px",
                         }}
                       >
                         {dateItem.month}
                       </div>
                     </button>
-                    {/* Selection indicator below date */}
                     {isSelected && (
                       <div
                         style={{
                           width: "69.2px",
                           height: "4px",
-                          backgroundColor: "#DC4144",
+                          backgroundColor: BRAND_RED,
                           borderTopLeftRadius: "100px",
                           borderTopRightRadius: "100px",
-                          marginTop: "0.25rem",
-                          marginBottom: "-4px",
+                          marginTop: "0",
+                          marginBottom: "-1px",
                         }}
                       />
                     )}
@@ -893,10 +946,10 @@ export default function FPScheduleCallModal({
             </div>
           </div>
 
-          {/* Time Selection or Empty State */}
+          {/* Time grid — 3 columns, row/column gap 10px, 40px height */}
           <div
             style={{
-              marginBottom: hasDateAndTime ? "1rem" : "0",
+              marginBottom: hasDateAndTime ? "16px" : "0",
             }}
           >
             {timeSlots.length > 0 ? (
@@ -905,27 +958,32 @@ export default function FPScheduleCallModal({
                   display: "grid",
                   gridTemplateColumns: "repeat(3, 1fr)",
                   gap: "10px",
+                  width: "100%",
                 }}
               >
                 {timeSlots.map((time, index) => {
                   const isSelected = selectedTime === time;
                   return (
                     <button
+                      type="button"
                       key={index}
                       onClick={() => setSelectedTime(time)}
                       style={{
                         height: "40px",
-                        padding: "23px 21px",
+                        minHeight: "40px",
+                        padding: "0 10px",
                         border: isSelected
-                          ? "1px solid #DC4144"
-                          : "1px solid #E7E9EB",
+                          ? `1px solid ${BRAND_RED}`
+                          : `1px solid ${C4}`,
                         borderRadius: "10px",
                         backgroundColor: "#ffffff",
-                        color: isSelected ? "#DC4144" : "#0A1F34",
+                        color: isSelected ? BRAND_RED : C1,
+                        fontFamily: MODAL_FONT,
                         fontSize: "14px",
                         fontWeight: 600,
+                        lineHeight: 1.2,
                         cursor: "pointer",
-                        transition: "all 0.2s",
+                        transition: "border-color 0.2s, color 0.2s",
                         textAlign: "center",
                         display: "flex",
                         justifyContent: "center",
@@ -933,12 +991,12 @@ export default function FPScheduleCallModal({
                       }}
                       onMouseEnter={(e) => {
                         if (!isSelected) {
-                          e.currentTarget.style.borderColor = "#9ca3af";
+                          e.currentTarget.style.borderColor = "#cfd4d8";
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (!isSelected) {
-                          e.currentTarget.style.borderColor = "#d1d5db";
+                          e.currentTarget.style.borderColor = C4;
                         }
                       }}
                     >
@@ -955,10 +1013,13 @@ export default function FPScheduleCallModal({
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
-                  padding: "2rem 1rem",
+                  padding: "24px 16px",
                   background: "#F9FAFB",
                   borderRadius: "12px",
                   textAlign: "center",
+                  fontFamily: MODAL_FONT,
+                  width: "100%",
+                  boxSizing: "border-box",
                 }}
               >
                 <div
@@ -970,20 +1031,20 @@ export default function FPScheduleCallModal({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    marginBottom: "1rem",
+                    marginBottom: "16px",
                     boxShadow: "0 4px 16px rgba(220, 65, 68, 0.35), 0 0 24px rgba(220, 65, 68, 0.2)",
                   }}
                 >
-                  <Calendar size={40} color="#DC4144" strokeWidth={1.5} />
+                  <Calendar size={40} color={BRAND_RED} strokeWidth={1.5} />
                 </div>
                 <h3
                   style={{
                     margin: 0,
                     fontSize: "18px",
                     fontWeight: 700,
-                    color: "#111827",
-                    marginBottom: "0.5rem",
-                    lineHeight: "1.3",
+                    color: C1,
+                    marginBottom: "8px",
+                    lineHeight: 1.3,
                   }}
                 >
                   Whoops, your bookings is empty!
@@ -992,8 +1053,9 @@ export default function FPScheduleCallModal({
                   style={{
                     margin: 0,
                     fontSize: "14px",
-                    color: "#6C7985",
-                    lineHeight: "1.5",
+                    fontWeight: 400,
+                    color: C2,
+                    lineHeight: 1.4285714285714286,
                     maxWidth: "280px",
                   }}
                 >
@@ -1005,69 +1067,83 @@ export default function FPScheduleCallModal({
 
           {/* Topic Selection - Only show when date and time are selected */}
           {hasDateAndTime && (
-            <div
-              style={
-                {
-                  // marginBottom: "2rem",
-                }
-              }
-            >
+            <div style={{ width: "100%" }}>
               <div
                 style={{
-                  width: "76px",
-                  height: "12px",
-                  lineHeight: "100%",
-                  fontSize: "10px",
-                  fontWeight: 700,
-                  color: "#0A1F34",
-                  opacity: 0.6,
-                  marginBottom: "1rem",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                  textAlign: "left",
+                  display: "flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginBottom: "12px",
                 }}
               >
-                SELECT TOPIC
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    color: C1,
+                    opacity: 0.6,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    lineHeight: 1.2,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Select topic
+                </span>
+                <div
+                  style={{
+                    flex: 1,
+                    height: "1px",
+                    backgroundColor: "#EFEFEF",
+                    minWidth: "8px",
+                  }}
+                />
               </div>
               <div
                 style={{
                   display: "flex",
                   flexWrap: "wrap",
-                  gap: "5px",
+                  gap: "8px",
                 }}
               >
                 {topics.map((topic, index) => {
                   const isSelected = selectedTopics.includes(topic);
                   return (
                     <button
+                      type="button"
                       key={index}
                       onClick={() => toggleTopic(topic)}
                       style={{
                         height: "32px",
+                        minHeight: "32px",
                         padding: "10px 12px",
                         border: isSelected
-                          ? "1px solid #DC4144"
-                          : "1px solid #0A1F340F",
+                          ? `1px solid ${BRAND_RED}`
+                          : `1px solid ${TOPIC_BORDER}`,
                         borderRadius: "100px",
                         backgroundColor: "#ffffff",
-                        color: isSelected ? "#DC4144" : "#0A1F34",
+                        color: isSelected ? BRAND_RED : C1,
+                        fontFamily: MODAL_FONT,
                         fontSize: "14px",
                         fontWeight: 500,
+                        lineHeight: 1.2857142857142858,
                         cursor: "pointer",
-                        transition: "all 0.2s",
+                        transition: "border-color 0.2s, color 0.2s",
                         textAlign: "center",
                         display: "flex",
                         justifyContent: "center",
                         alignItems: "center",
+                        boxShadow: "0px 1px 3px 0px rgba(10, 31, 52, 0.06)",
                       }}
                       onMouseEnter={(e) => {
                         if (!isSelected) {
-                          e.currentTarget.style.borderColor = "#9ca3af";
+                          e.currentTarget.style.borderColor = "rgba(10, 31, 52, 0.18)";
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (!isSelected) {
-                          e.currentTarget.style.borderColor = "#d1d5db";
+                          e.currentTarget.style.borderColor = TOPIC_BORDER;
                         }
                       }}
                     >
@@ -1089,43 +1165,44 @@ export default function FPScheduleCallModal({
             left: 0,
             right: 0,
             background: "#FFFFFF",
-            borderTop: "1px solid #e5e7eb",
-            padding: "1rem 1.5rem",
+            borderTop: `1px solid ${C4}`,
+            paddingTop: "12px",
+            paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+            paddingLeft: MODAL_PAD_X,
+            paddingRight: MODAL_PAD_RIGHT,
             zIndex: 10000,
-            boxShadow: "0 -2px 10px rgba(0, 0, 0, 0.1)",
+            boxShadow: "0 -2px 10px rgba(0, 0, 0, 0.06)",
+            fontFamily: MODAL_FONT,
           }}
         >
-          {/* Call Type Selector */}
-          <div
-            style={{
-              marginBottom: "1rem",
-            }}
-          >
+          {/* Call type — not in Figma; kept for API, typography aligned */}
+          <div style={{ marginBottom: "12px" }}>
             <div
               style={{
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "#6b7280",
-                marginBottom: "0.5rem",
+                fontSize: "10px",
+                fontWeight: 700,
+                color: C1,
+                opacity: 0.6,
+                marginBottom: "8px",
                 textTransform: "uppercase",
-                letterSpacing: "0.5px",
+                letterSpacing: "0.06em",
+                lineHeight: 1.2,
                 textAlign: "left",
               }}
             >
-              Select Call Type
+              Select call type
             </div>
             <div
               style={{
                 display: "flex",
                 borderRadius: "8px",
-                background: "#f08080",
+                background: "rgba(220, 65, 68, 0.35)",
                 padding: "2px",
                 width: "fit-content",
                 position: "relative",
                 overflow: "hidden",
               }}
             >
-              {/* Sliding background indicator */}
               <div
                 style={{
                   position: "absolute",
@@ -1133,22 +1210,25 @@ export default function FPScheduleCallModal({
                   bottom: "2px",
                   left: callType === "Video" ? "2px" : "50%",
                   right: callType === "Video" ? "50%" : "2px",
-                  backgroundColor: "#E03B44",
+                  backgroundColor: BRAND_RED,
                   borderRadius: "6px",
                   transition: "left 0.3s ease-out, right 0.3s ease-out",
                   zIndex: 0,
                 }}
               />
               <button
+                type="button"
                 onClick={() => setCallType("Video")}
                 style={{
-                  padding: "0.5rem 1.5rem",
+                  padding: "8px 24px",
                   border: "none",
                   borderRadius: "6px",
                   backgroundColor: "transparent",
                   color: "#ffffff",
+                  fontFamily: MODAL_FONT,
                   fontSize: "14px",
                   fontWeight: 600,
+                  lineHeight: 1.2,
                   cursor: "pointer",
                   position: "relative",
                   zIndex: 1,
@@ -1157,15 +1237,18 @@ export default function FPScheduleCallModal({
                 Video
               </button>
               <button
+                type="button"
                 onClick={() => setCallType("Voice")}
                 style={{
-                  padding: "0.5rem 1.5rem",
+                  padding: "8px 24px",
                   border: "none",
                   borderRadius: "6px",
                   backgroundColor: "transparent",
                   color: "#ffffff",
+                  fontFamily: MODAL_FONT,
                   fontSize: "14px",
                   fontWeight: 600,
+                  lineHeight: 1.2,
                   cursor: "pointer",
                   position: "relative",
                   zIndex: 1,
@@ -1176,39 +1259,103 @@ export default function FPScheduleCallModal({
             </div>
           </div>
 
-          {/* Selected Info and Schedule Button */}
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
+              flexDirection: "row",
               alignItems: "center",
-              gap: "1rem",
+              gap: "8px",
             }}
           >
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                flex: 1,
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+              }}
+            >
               {hasDateAndTime ? (
                 <>
                   <div
                     style={{
-                      fontSize: "14px",
-                      color: "#111827",
-                      fontWeight: 500,
-                      marginBottom: "0.25rem",
-                      textAlign: "left",
+                      display: "flex",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "4px",
                     }}
                   >
-                    {formatFooterDate()} • {selectedTime}
+                    <span
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        color: C1,
+                        lineHeight: 1.4285714285714286,
+                      }}
+                    >
+                      {formatFooterDate()}
+                    </span>
+                    <span
+                      style={{
+                        width: "2px",
+                        height: "2px",
+                        borderRadius: "50%",
+                        backgroundColor: C1,
+                        opacity: 0.6,
+                        flexShrink: 0,
+                      }}
+                      aria-hidden
+                    />
+                    <span
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        color: C1,
+                        lineHeight: 1.4285714285714286,
+                      }}
+                    >
+                      {selectedTime}
+                    </span>
                   </div>
                   {selectedTopics.length > 0 && (
                     <div
                       style={{
-                        fontSize: "14px",
-                        color: "#111827",
-                        fontWeight: 500,
-                        textAlign: "left",
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "5px",
                       }}
                     >
-                      {selectedTopics.join(" • ")}
+                      {selectedTopics.map((t, i) => (
+                        <React.Fragment key={t}>
+                          {i > 0 && (
+                            <span
+                              style={{
+                                width: "2px",
+                                height: "2px",
+                                borderRadius: "50%",
+                                backgroundColor: C1,
+                                opacity: 0.6,
+                                flexShrink: 0,
+                              }}
+                              aria-hidden
+                            />
+                          )}
+                          <span
+                            style={{
+                              fontSize: "12px",
+                              fontWeight: 500,
+                              color: C1,
+                              lineHeight: 1.1666666666666667,
+                            }}
+                          >
+                            {t}
+                          </span>
+                        </React.Fragment>
+                      ))}
                     </div>
                   )}
                 </>
@@ -1216,7 +1363,10 @@ export default function FPScheduleCallModal({
                 <div
                   style={{
                     fontSize: "14px",
-                    color: "#9ca3af",
+                    fontWeight: 600,
+                    color: C1,
+                    opacity: 0.45,
+                    lineHeight: 1.4285714285714286,
                   }}
                 >
                   Select date and time
@@ -1224,6 +1374,7 @@ export default function FPScheduleCallModal({
               )}
             </div>
             <button
+              type="button"
               onClick={handleSchedule}
               disabled={
                 !hasDateAndTime || selectedTopics.length === 0 || scheduling
@@ -1231,38 +1382,39 @@ export default function FPScheduleCallModal({
               style={{
                 width: "131px",
                 height: "52px",
-                alignItems: "center",
+                flexShrink: 0,
                 border: "none",
                 borderRadius: "100px",
-                backgroundColor:
-                  hasDateAndTime && selectedTopics.length > 0 && !scheduling
-                    ? "#dc2626"
-                    : "#DC4144",
-                color:
-                  hasDateAndTime && selectedTopics.length > 0 && !scheduling
-                    ? "#ffffff"
-                    : "#ffffff",
+                backgroundColor: BRAND_RED,
+                color: "#ffffff",
+                fontFamily: MODAL_FONT,
                 fontSize: "14px",
                 fontWeight: 700,
+                lineHeight: 1,
                 cursor:
                   hasDateAndTime && selectedTopics.length > 0 && !scheduling
                     ? "pointer"
                     : "not-allowed",
-                transition: "background-color 0.2s",
+                transition: "background-color 0.2s, opacity 0.2s",
                 whiteSpace: "nowrap",
+                opacity:
+                  scheduling ||
+                  (hasDateAndTime && selectedTopics.length > 0)
+                    ? 1
+                    : 0.45,
               }}
               onMouseEnter={(e) => {
-                if (hasDateAndTime && selectedTopics.length > 0) {
-                  e.currentTarget.style.backgroundColor = "#b91c1c";
+                if (hasDateAndTime && selectedTopics.length > 0 && !scheduling) {
+                  e.currentTarget.style.backgroundColor = "#c53a3d";
                 }
               }}
               onMouseLeave={(e) => {
-                if (hasDateAndTime && selectedTopics.length > 0) {
-                  e.currentTarget.style.backgroundColor = "#dc2626";
+                if (hasDateAndTime && selectedTopics.length > 0 && !scheduling) {
+                  e.currentTarget.style.backgroundColor = BRAND_RED;
                 }
               }}
             >
-              {scheduling ? "Scheduling..." : "Schedule Call"}
+              {scheduling ? "Scheduling…" : "Schedule"}
             </button>
           </div>
         </div>

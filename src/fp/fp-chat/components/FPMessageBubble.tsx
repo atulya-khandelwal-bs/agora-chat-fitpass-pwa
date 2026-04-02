@@ -20,6 +20,10 @@ interface FPMessageBubbleProps {
     callType?: "video_call" | "voice_call"
   ) => void;
   isLastMessage?: boolean;
+  /** Vertical gap from the previous chat bubble: 4 same side, 12 when switching sides; 0 if not stacked */
+  stackMarginTopPx?: number;
+  /** Extra space below this row (e.g. recommended products uses 12px; pair with reduced top on the next row) */
+  stackMarginBottomPx?: number;
 }
 
 export default function FPMessageBubble({
@@ -29,6 +33,8 @@ export default function FPMessageBubble({
   formatCurrency,
   onPlayVideo,
   isLastMessage = false,
+  stackMarginTopPx = 0,
+  stackMarginBottomPx = 0,
 }: FPMessageBubbleProps): React.JSX.Element {
   const renderMessageContent = (): React.JSX.Element => {
     if (msg.messageType === "image" && (msg.imageData || msg.imageUrl)) {
@@ -115,7 +121,6 @@ export default function FPMessageBubble({
         <FPProductMessageView
           products={msg.products}
           formatCurrency={formatCurrency}
-          isIncoming={msg.isIncoming}
         />
       );
     }
@@ -360,9 +365,18 @@ export default function FPMessageBubble({
     return <FPTextMessageView content={msg.content} />;
   };
 
+  const wrapperStyle: React.CSSProperties | undefined =
+    stackMarginTopPx || stackMarginBottomPx
+      ? {
+          ...(stackMarginTopPx ? { marginTop: stackMarginTopPx } : {}),
+          ...(stackMarginBottomPx ? { marginBottom: stackMarginBottomPx } : {}),
+        }
+      : undefined;
+
   return (
     <div
       className={`message-wrapper ${msg.isIncoming ? "incoming" : "outgoing"}${msg.messageType === "products" ? " message-wrapper--products" : ""}`}
+      style={wrapperStyle}
     >
       <div className="message-container">
         {msg.label && !msg.isIncoming && (

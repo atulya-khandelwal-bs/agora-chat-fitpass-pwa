@@ -1,10 +1,21 @@
 import { SendHorizontal, SquareStop, Trash2 } from "lucide-react";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+
+const DOT_COUNT = 10;
+const BAR_COUNT = 44;
+
+function formatRecordingClock(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const mm = String(Math.floor(s / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
 
 interface FPAudioRecordingOverlayProps {
   isRecording: boolean;
   isStopped: boolean;
   recordingDuration: number;
+  mediaStream: MediaStream | null;
   onCancel: () => void;
   onStop: () => void;
   onSend: () => void;
@@ -15,276 +26,190 @@ export default function FPAudioRecordingOverlay({
   isRecording,
   isStopped,
   recordingDuration,
+  mediaStream,
   onCancel,
   onStop,
   onSend,
-  formatDuration,
 }: FPAudioRecordingOverlayProps): React.JSX.Element | null {
   const [waveformData, setWaveformData] = useState<number[]>([]);
   const [finalWaveform, setFinalWaveform] = useState<number[]>([]);
 
-  // Simulate waveform data (in real app, this would come from audio analysis)
-  useEffect(() => {
-    if (isRecording) {
-      const interval = setInterval(() => {
-        // Generate random waveform bars (heights between 4-24px)
-        const newBars = Array.from(
-          { length: 25 },
-          () => Math.random() * 20 + 4
-        );
-        setWaveformData(newBars);
-        setFinalWaveform(newBars); // Keep updating final waveform while recording
-      }, 100);
-
-      return () => clearInterval(interval);
+  const pushBarsFromAnalyser = useCallback((analyser: AnalyserNode) => {
+    const freq = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(freq);
+    const bars: number[] = [];
+    const chunk = Math.max(1, Math.floor(freq.length / BAR_COUNT));
+    for (let i = 0; i < BAR_COUNT; i++) {
+      let sum = 0;
+      for (let j = 0; j < chunk; j++) {
+        sum += freq[i * chunk + j] ?? 0;
+      }
+      const avg = sum / chunk / 255;
+      const h = 3 + avg * 26;
+      bars.push(Math.min(28, Math.max(3, h)));
     }
-  }, [isRecording]);
+    setWaveformData(bars);
+    setFinalWaveform(bars);
+  }, []);
 
-  // Don't show if neither recording nor stopped
+  useEffect(() => {
+    if (!isRecording || !mediaStream) {
+      return;
+    }
+
+    let ctx: AudioContext | null = null;
+    let raf = 0;
+    let intervalId: number | null = null;
+    let cancelled = false;
+
+    const startFallback = (): void => {
+      intervalId = window.setInterval(() => {
+        const bars = Array.from(
+          { length: BAR_COUNT },
+          () => 3 + Math.random() * 22
+        );
+        setWaveformData(bars);
+        setFinalWaveform(bars);
+      }, 100);
+    };
+
+    const run = async (): Promise<void> => {
+      try {
+        ctx = new AudioContext();
+        if (ctx.state === "suspended") {
+          await ctx.resume();
+        }
+        if (cancelled) return;
+
+        const source = ctx.createMediaStreamSource(mediaStream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.65;
+        source.connect(analyser);
+
+        const tick = (): void => {
+          if (cancelled) return;
+          pushBarsFromAnalyser(analyser);
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      } catch (e) {
+        console.error("Audio waveform analyser failed:", e);
+        startFallback();
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+      }
+      void ctx?.close();
+    };
+  }, [isRecording, mediaStream, pushBarsFromAnalyser]);
+
+  useEffect(() => {
+    if (!isRecording && !isStopped) {
+      setWaveformData([]);
+      setFinalWaveform([]);
+    }
+  }, [isRecording, isStopped]);
+
   if (!isRecording && !isStopped) return null;
 
+  const clock = formatRecordingClock(recordingDuration);
+
   return (
-    <div
-      className="audio-recording-overlay"
-      style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: "#FCE7F3",
-        padding: "12px 16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 100,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          width: "100%",
-          maxWidth: "600px",
-        }}
-      >
-        {/* Timestamp */}
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: 500,
-            color: "#374151",
-            minWidth: "45px",
-            flexShrink: 0,
-          }}
-        >
-          {formatDuration(recordingDuration)}
+    <div className="audio-recording-overlay audio-recording-overlay--active">
+      <div className="audio-recording-waveform-row">
+        <div className="audio-recording-silence-dots" aria-hidden>
+          {Array.from({ length: DOT_COUNT }).map((_, i) => (
+            <span key={`dot-${i}`} className="audio-recording-silence-dot" />
+          ))}
         </div>
-
-        {/* Audio Waveform Bar */}
-        <div
-          style={{
-            flex: 1,
-            height: "48px",
-            background: "#FFFFFF",
-            border: "1px solid #E5E7EB",
-            borderRadius: "24px",
-            padding: "8px 16px",
-            display: "flex",
-            alignItems: "center",
-            gap: "3px",
-            overflow: "hidden",
-          }}
-        >
+        <div className="audio-recording-bars">
           {isStopped ? (
-            /* Static waveform when stopped */
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "2px",
-                height: "100%",
-                flex: 1,
-              }}
-            >
-              {finalWaveform.length > 0
-                ? finalWaveform.map((height, i) => (
-                    <div
-                      key={`bar-${i}`}
-                      style={{
-                        width: "3px",
-                        height: `${height}px`,
-                        background: "#DC4144",
-                        borderRadius: "2px",
-                      }}
-                    />
-                  ))
-                : Array.from({ length: 25 }).map((_, i) => (
-                    <div
-                      key={`bar-${i}`}
-                style={{
-                        width: "3px",
-                        height: `${Math.random() * 20 + 4}px`,
-                  background: "#DC4144",
-                        borderRadius: "2px",
-                }}
+            finalWaveform.length > 0 ? (
+              finalWaveform.map((height, i) => (
+                <span
+                  key={`bar-${i}`}
+                  className="audio-recording-bar"
+                  style={{ height: `${height}px` }}
+                />
+              ))
+            ) : (
+              Array.from({ length: BAR_COUNT }).map((_, i) => (
+                <span
+                  key={`bar-f-${i}`}
+                  className="audio-recording-bar"
+                  style={{ height: `${4 + (i % 5) * 3}px` }}
+                />
+              ))
+            )
+          ) : waveformData.length > 0 ? (
+            waveformData.map((height, i) => (
+              <span
+                key={`bar-${i}`}
+                className="audio-recording-bar"
+                style={{ height: `${height}px` }}
               />
-                  ))}
-            </div>
+            ))
           ) : (
-            <>
-              {/* Dotted line for silence (first part) */}
-              <div
-                style={{
-                  display: "flex",
-                  gap: "4px",
-                  alignItems: "center",
-                  height: "100%",
-                  marginRight: "8px",
-                }}
-              >
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <div
-                    key={`dot-${i}`}
-                    style={{
-                      width: "3px",
-                      height: "3px",
-                      borderRadius: "50%",
-                      background: "#DC4144",
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Waveform bars */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "2px",
-                  height: "100%",
-                  flex: 1,
-                }}
-              >
-                {waveformData.length > 0
-                  ? waveformData.map((height, i) => (
-                      <div
-                        key={`bar-${i}`}
-                        style={{
-                          width: "3px",
-                          height: `${height}px`,
-                          background: "#DC4144",
-                          borderRadius: "2px",
-                          transition: "height 0.1s ease-out",
-                        }}
-                      />
-                    ))
-                  : Array.from({ length: 20 }).map((_, i) => (
-                      <div
-                        key={`bar-${i}`}
-                        style={{
-                          width: "3px",
-                          height: "4px",
-                          background: "#DC4144",
-                          borderRadius: "2px",
-                        }}
-                      />
-                    ))}
-              </div>
-            </>
+            Array.from({ length: BAR_COUNT }).map((_, i) => (
+              <span
+                key={`bar-p-${i}`}
+                className="audio-recording-bar audio-recording-bar--idle"
+                style={{ height: "4px" }}
+              />
+            ))
           )}
         </div>
+      </div>
 
-        {/* Action Buttons */}
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            flexShrink: 0,
-          }}
-        >
-          {/* Delete/Trash Button */}
+      <div className="audio-recording-timer-pill">{clock}</div>
+
+      <div className="audio-recording-bottom-actions">
+        <div className="audio-recording-labeled-action">
           <button
+            type="button"
+            className="audio-recording-circle-btn audio-recording-circle-btn--red"
             onClick={onCancel}
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "50%",
-              background: "#DC4144",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transition: "opacity 0.2s",
-              padding: 0,
-              color: "#FFFFFF",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = "0.8";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = "1";
-            }}
+            aria-label="Delete recording"
           >
-            <Trash2 size={20} color="#FFFFFF" />
+            <Trash2 size={22} color="#FFFFFF" strokeWidth={2.25} />
           </button>
-
-          {/* Stop or Send Button */}
+          <span className="audio-recording-action-label">Delete</span>
+        </div>
+        <div className="audio-recording-labeled-action">
           {isStopped ? (
-            /* Send Button - shown after stopping */
-            <button
-              onClick={onSend}
-              style={{
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
-                background: "#DC4144",
-                border: "none",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "opacity 0.2s",
-                padding: 0,
-                color: "#FFFFFF",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.9";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-            >
-              <SendHorizontal size={20} />
-            </button>
+            <>
+              <button
+                type="button"
+                className="audio-recording-circle-btn audio-recording-circle-btn--red"
+                onClick={() => {
+                  void onSend();
+                }}
+                aria-label="Send recording"
+              >
+                <SendHorizontal size={22} color="#FFFFFF" strokeWidth={2.25} />
+              </button>
+              <span className="audio-recording-action-label">Send</span>
+            </>
           ) : (
-            /* Stop Button - shown while recording */
-            <button
-              onClick={onStop}
-              style={{
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
-                background: "#DC4144",
-                border: "none",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "opacity 0.2s",
-                padding: 0,
-                color: "#FFFFFF",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.9";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-            >
-              <SquareStop size={20} color="#FFFFFF" />
-            </button>
+            <>
+              <button
+                type="button"
+                className="audio-recording-circle-btn audio-recording-circle-btn--red"
+                onClick={onStop}
+                aria-label="Stop recording"
+              >
+                <SquareStop size={22} color="#FFFFFF" strokeWidth={2.25} />
+              </button>
+              <span className="audio-recording-action-label">Stop</span>
+            </>
           )}
         </div>
       </div>

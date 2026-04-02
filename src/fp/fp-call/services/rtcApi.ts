@@ -7,9 +7,9 @@ import config from "../../common/config.ts";
 
 export interface GenerateRtcTokenRequest {
   channelName: string;
-  uid: number | string;
-  expireSecs?: number;
-  role?: "publisher" | "subscriber";
+  /** Coerced with String() before send — always a JSON string in the request body */
+  username: string | number;
+  expireInSecs?: number;
 }
 
 export interface GenerateRtcTokenResponse {
@@ -26,7 +26,7 @@ export async function generateRtcToken(
   request: GenerateRtcTokenRequest
 ): Promise<string> {
   try {
-    const { channelName, uid, expireSecs = 3600, role = "publisher" } = request;
+    const { channelName, username, expireInSecs = 7200 } = request;
 
     const response = await fetch(config.rtcToken.apiUrl, {
       method: "POST",
@@ -35,9 +35,8 @@ export async function generateRtcToken(
       },
       body: JSON.stringify({
         channelName,
-        uid,
-        expireSecs,
-        role,
+        username: String(username),
+        expireInSecs,
       }),
     });
 

@@ -2,7 +2,7 @@ import React from "react";
 import FPChatApp from "./fp/fp-chat/FPChatApp.tsx";
 
 // Sample patient id
-const userId = 119933;
+const userId = 220044;
 
 function App(): React.JSX.Element {
   // Use URL params or defaults
