@@ -1,6 +1,6 @@
 import React from "react";
 import AgoraRTC, { AgoraRTCProvider } from "agora-rtc-react";
-import type { IAgoraRTCClient } from "agora-rtc-react";
+import type { IAgoraRTCClient, UID } from "agora-rtc-react";
 import FPCallUI from "./FPCallUI.tsx";
 import {
   useIsConnected,
@@ -86,7 +86,7 @@ const FPVideoCallingInner = ({
   const [speakerOn, setSpeakerOn] = useState<boolean>(true);
   const [showMoreOptions, setShowMoreOptions] = useState<boolean>(false);
   const [controlsVisible, setControlsVisible] = useState<boolean>(true);
-  const [mainUserId, setMainUserId] = useState<number | null>(null);
+  const [mainUserId, setMainUserId] = useState<UID | null>(null);
 
   // Flip camera state
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);

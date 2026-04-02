@@ -1,9 +1,10 @@
 // Call-related type definitions
 
 import type {
+  IAgoraRTCRemoteUser,
   ILocalAudioTrack,
   ILocalVideoTrack,
-  IRemoteUser,
+  UID,
 } from "agora-rtc-react";
 import type { RefObject } from "react";
 
@@ -29,7 +30,7 @@ export interface FPCallUIProps {
   // Media tracks
   localMicrophoneTrack: ILocalAudioTrack | null;
   localCameraTrack: ILocalVideoTrack | null;
-  remoteUsers: IRemoteUser[];
+  remoteUsers: IAgoraRTCRemoteUser[];
   // Media controls
   micOn: boolean;
   setMic: (value: boolean | ((prev: boolean) => boolean)) => void;
@@ -45,8 +46,8 @@ export interface FPCallUIProps {
   setShowMoreOptions: (value: boolean | ((prev: boolean) => boolean)) => void;
   controlsVisible: boolean;
   setControlsVisible: (value: boolean) => void;
-  mainUserId: number | null;
-  setMainUserId: (value: number | null) => void;
+  mainUserId: UID | null;
+  setMainUserId: (value: UID | null) => void;
   // Refs
   videoContainerRef: RefObject<HTMLDivElement | null>;
   hideControlsTimerRef: RefObject<NodeJS.Timeout | null>;
