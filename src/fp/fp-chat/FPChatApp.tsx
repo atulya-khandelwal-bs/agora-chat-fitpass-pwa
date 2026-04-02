@@ -83,6 +83,10 @@ function FPChatApp({
   // 404 Error state
   const [show404Error, setShow404Error] = useState<boolean>(false);
 
+  /** When true, Agora disconnected this tab because the same userId logged in elsewhere — do not auto `open()` or tabs fight in a loop. */
+  const [chatAutoLoginBlocked, setChatAutoLoginBlocked] =
+    useState<boolean>(false);
+
   /** Stable key for effects — avoid re-running fetch logic on every new Contact object reference. */
   const selectedContactId = selectedContact?.id ?? null;
 
@@ -374,6 +378,7 @@ function FPChatApp({
     setConversations: () => {},
     generateNewToken,
     handleIncomingCall,
+    onSessionConflictFromOtherClient: () => setChatAutoLoginBlocked(true),
     get clientRef() {
       return clientRefForHandlers;
     },
@@ -388,7 +393,13 @@ function FPChatApp({
 
   // Auto-login when userId and token are provided (token comes from getDietitianToken)
   useEffect(() => {
-    if (userId && token && !isLoggedIn && clientRef.current) {
+    if (
+      userId &&
+      token &&
+      !isLoggedIn &&
+      !chatAutoLoginBlocked &&
+      clientRef.current
+    ) {
       // Step 2: Login Into Agora SDK
       // Errors (including usernotfound) will be handled by onError handler
       if (
@@ -405,7 +416,7 @@ function FPChatApp({
         ).open({ user: userId, accessToken: token });
       }
     }
-  }, [userId, token, isLoggedIn, clientRef]);
+  }, [userId, token, isLoggedIn, chatAutoLoginBlocked, clientRef]);
 
   // Initialize group chat: getDietitianToken → token + group_id; contact targets group
   useEffect(() => {
@@ -418,6 +429,7 @@ function FPChatApp({
       setToken(undefined);
       setChatGroupId(groupId ?? null);
       setIsLoggedIn(false);
+      setChatAutoLoginBlocked(false);
     }
 
     const initializeDirectChat = async (): Promise<void> => {
@@ -1103,7 +1115,8 @@ function FPChatApp({
   }
 
   // Determine if chat interface should show loading state
-  const isChatConnecting = (token && !isLoggedIn) || isGeneratingToken;
+  const isChatConnecting =
+    ((token && !isLoggedIn && !chatAutoLoginBlocked) || isGeneratingToken);
 
   return (
     <div className="fp-chat-wrapper app-container">
@@ -1111,7 +1124,25 @@ function FPChatApp({
         {/* Chat Panel - always full width, no conversation list */}
         <div className="chat-panel full-width">
           {selectedContact ? (
-            isChatConnecting ? (
+            chatAutoLoginBlocked && !isLoggedIn ? (
+              <div className="chat-session-paused">
+                <p className="chat-session-paused-title">
+                  Chat is open in another tab or device
+                </p>
+                <p className="chat-session-paused-hint">
+                  Only one active session is allowed for this account. Continue
+                  here to use chat on this device (the other session will
+                  disconnect).
+                </p>
+                <button
+                  type="button"
+                  className="chat-session-paused-button"
+                  onClick={() => setChatAutoLoginBlocked(false)}
+                >
+                  Use chat here
+                </button>
+              </div>
+            ) : isChatConnecting ? (
               <div className="chat-loading-container">
                 <div className="chat-loading-spinner" />
                 <div className="chat-loading-text">

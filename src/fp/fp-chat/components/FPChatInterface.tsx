@@ -2858,6 +2858,8 @@ export default function FPChatInterface({
   // Image viewer helpers
   const openImageViewer = (url: string, alt?: string): void => {
     if (!url) return;
+    // Dismiss keyboard before input unmounts (mobile PWA); avoids focus churn with overlay
+    inputRef.current?.blur();
     setImageViewerUrl(url);
     setImageViewerAlt(alt || "Image");
     // Optional: lock background scroll if desired

@@ -4,13 +4,17 @@ import type { Connection, MessageBody } from "agora-chat";
 
 interface MessageHandlers {
   onConnected?: () => void;
-  onDisconnected?: () => void;
+  onDisconnected?: (error?: { type?: unknown }) => void;
   onTextMessage?: (msg: MessageBody) => void;
   onCustomMessage?: (msg: MessageBody) => void;
   onModifiedMessage?: (msg: MessageBody) => void; // Agora SDK uses onModifiedMessage, not onMessageChanged
   onTokenWillExpire?: () => Promise<void>;
   onTokenExpired?: () => Promise<void>;
-  onError?: (error: { message: string }) => void;
+  onError?: (error: {
+    message: string;
+    code?: string;
+    type?: number | string;
+  }) => void;
   onPresenceStatus?: (presenceData: {
     userId: string;
     description: string;

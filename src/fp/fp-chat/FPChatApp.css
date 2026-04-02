@@ -1042,6 +1042,50 @@
   font-size: 14px;
 }
 
+.fp-chat-wrapper .chat-session-paused {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 2rem;
+  gap: 1rem;
+  text-align: center;
+  background: var(--fp-bg);
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+.fp-chat-wrapper .chat-session-paused-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--fp-text);
+}
+
+.fp-chat-wrapper .chat-session-paused-hint {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--fp-muted);
+}
+
+.fp-chat-wrapper .chat-session-paused-button {
+  margin-top: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  background: var(--fp-primary);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.fp-chat-wrapper .chat-session-paused-button:hover {
+  filter: brightness(1.05);
+}
+
 .fp-chat-wrapper .empty-state {
   text-align: center;
   padding: 2rem;

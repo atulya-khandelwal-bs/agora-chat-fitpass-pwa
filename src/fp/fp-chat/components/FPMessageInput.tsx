@@ -268,7 +268,6 @@ export default function FPMessageInput({
             onKeyPress={onKeyPress}
             className="message-input"
             disabled={!selectedContact}
-            autoFocus
             style={{
               width: "100%",
               border: "none",

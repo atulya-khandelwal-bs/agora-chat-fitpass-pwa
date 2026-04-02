@@ -9,6 +9,20 @@ import type { MessageBody } from "agora-chat";
 import React from "react";
 import { isBlockedUID } from "./blockedUIDs";
 
+/** Agora `Code`: logged in on another device — do not auto-reconnect or tabs fight in a loop. */
+const AGORA_LOGIN_ANOTHER_DEVICE = 206;
+/** Agora `Code`: kicked by another device */
+const AGORA_KICKED_BY_OTHER_DEVICE = 217;
+
+function isAgoraSessionConflictError(error: {
+  type?: unknown;
+} | null | undefined): boolean {
+  const t = error?.type;
+  return (
+    t === AGORA_LOGIN_ANOTHER_DEVICE || t === AGORA_KICKED_BY_OTHER_DEVICE
+  );
+}
+
 interface IncomingCall {
   from: string;
   channel: string;
@@ -29,6 +43,8 @@ interface MessageHandlersOptions {
     description: string;
   }) => void;
   clientRef: React.RefObject<unknown> | (() => unknown) | { current?: unknown };
+  /** Fired when this tab loses the chat session because the same user connected elsewhere. */
+  onSessionConflictFromOtherClient?: () => void;
 }
 
 /**
@@ -73,15 +89,20 @@ export function createMessageHandlers({
   handleIncomingCall,
   onPresenceStatus,
   clientRef,
+  onSessionConflictFromOtherClient,
 }: MessageHandlersOptions): {
   onConnected: () => void;
-  onDisconnected: () => void;
+  onDisconnected: (error?: { type?: unknown }) => void;
   onTextMessage: (msg: MessageBody) => void;
   onCustomMessage: (msg: MessageBody) => void;
   onModifiedMessage: (msg: MessageBody) => void; // Agora SDK uses onModifiedMessage
   onTokenWillExpire: () => Promise<void>;
   onTokenExpired: () => Promise<void>;
-  onError: (e: { message: string }) => void;
+  onError: (e: {
+    message: string;
+    code?: string;
+    type?: number | string;
+  }) => void;
   onPresenceStatus?: (presenceData: {
     userId: string;
     description: string;
@@ -103,8 +124,15 @@ export function createMessageHandlers({
       setIsLoggingIn(false);
       addLog(`User ${userId} connected`);
     },
-    onDisconnected: () => {
+    onDisconnected: (error?: { type?: unknown }) => {
       setIsLoggedIn(false);
+      if (isAgoraSessionConflictError(error)) {
+        onSessionConflictFromOtherClient?.();
+        addLog(
+          "Disconnected: same account connected in another tab or device (auto-reconnect paused)"
+        );
+        return;
+      }
       addLog("Disconnected");
     },
     onTextMessage: (msg: MessageBody) => {
@@ -1122,8 +1150,30 @@ export function createMessageHandlers({
         setIsLoggingIn(false);
       }
     },
-    onError: async (e: { message: string; code?: string; type?: string }): Promise<void> => {
+    onError: async (e: {
+      message: string;
+      code?: string;
+      type?: number | string;
+    }): Promise<void> => {
       const errorMessage = e.message || "";
+      const typeNum =
+        typeof e.type === "number"
+          ? e.type
+          : typeof e.type === "string"
+            ? Number(e.type)
+            : undefined;
+      if (
+        typeNum === AGORA_LOGIN_ANOTHER_DEVICE ||
+        typeNum === AGORA_KICKED_BY_OTHER_DEVICE
+      ) {
+        setIsLoggedIn(false);
+        onSessionConflictFromOtherClient?.();
+        addLog(
+          `Chat session taken elsewhere: ${errorMessage || "another tab or device"}`
+        );
+        setIsLoggingIn(false);
+        return;
+      }
       addLog(`Error: ${errorMessage}`);
       setIsLoggingIn(false);
     },
