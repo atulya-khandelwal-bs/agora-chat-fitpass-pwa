@@ -7,6 +7,7 @@ import type {
   Product,
 } from "../../common/types/chat";
 import type { ApiMessage } from "../services/chatApi";
+import { shouldSuppressMultiDeviceSessionChatPayload } from "./chatPayloadFilters.ts";
 
 interface AgoraMessage {
   id?: string;
@@ -1289,6 +1290,10 @@ export const formatMessage = (
     }
   } catch {
     // Not JSON, treat as regular text
+  }
+
+  if (shouldSuppressMultiDeviceSessionChatPayload(textContent)) {
+    return null;
   }
 
   // Regular text message

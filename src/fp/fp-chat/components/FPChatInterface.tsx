@@ -21,6 +21,10 @@ import {
   parseSystemPayload,
   getSystemLabel,
 } from "../utils/messageFormatters.ts";
+import {
+  extractChatBodyFromLogLine,
+  shouldSuppressMultiDeviceSessionChatPayload,
+} from "../utils/chatPayloadFilters.ts";
 import { cancelCallWithDietitian } from "../services/dietitianApi";
 import { sendCustomMessage, type ApiMessage } from "../services/chatApi";
 
@@ -519,6 +523,13 @@ export default function FPChatInterface({
     const filteredLogs = logEntries.filter((entry) => {
       const { log } = entry;
       if (!log) return false;
+      const bodyProbe = extractChatBodyFromLogLine(log);
+      if (
+        bodyProbe &&
+        shouldSuppressMultiDeviceSessionChatPayload(bodyProbe)
+      ) {
+        return false;
+      }
       // Filter messages for the current conversation
       if (log.includes("→")) {
         // Outgoing message: "You → peerId: message"

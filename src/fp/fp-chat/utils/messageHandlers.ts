@@ -8,6 +8,7 @@ import type { Contact, LogEntry } from "../../common/types/chat";
 import type { MessageBody } from "agora-chat";
 import React from "react";
 import { isBlockedUID } from "./blockedUIDs";
+import { shouldSuppressMultiDeviceSessionChatPayload } from "./chatPayloadFilters.ts";
 
 /** Agora `Code`: logged in on another device — do not auto-reconnect or tabs fight in a loop. */
 const AGORA_LOGIN_ANOTHER_DEVICE = 206;
@@ -307,6 +308,10 @@ export function createMessageHandlers({
           );
         }
 
+        if (shouldSuppressMultiDeviceSessionChatPayload(messageContent)) {
+          return;
+        }
+
         addLog(`${msg.from}: ${messageContent}`);
 
         // Update conversation - normalize conversation ID matching
@@ -537,6 +542,14 @@ export function createMessageHandlers({
       const logPrefixText = isSelfSentText
         ? `You → ${msg.to || "unknown"}`
         : `${msg.from}`;
+
+      if (
+        shouldSuppressMultiDeviceSessionChatPayload(
+          String(messageToLog ?? "")
+        )
+      ) {
+        return;
+      }
 
       // Always add log with timestamp to ensure it's properly displayed in UI
       addLog({
@@ -1032,6 +1045,10 @@ export function createMessageHandlers({
         messageContent = JSON.stringify(msg.params || msg.body || msg || {});
       }
 
+      if (shouldSuppressMultiDeviceSessionChatPayload(messageContent)) {
+        return;
+      }
+
       // Check if this is a self-sent message (from current user)
       // This handles cases where backend sends messages on behalf of the user
       const isSelfSent = fromId === userId || String(fromId) === String(userId);
@@ -1193,6 +1210,10 @@ export function createMessageHandlers({
         `${msg.from}-${msg.time}`;
 
       const messageContent = msg.msg || msg.msgContent || msg.data || "";
+
+      if (shouldSuppressMultiDeviceSessionChatPayload(String(messageContent))) {
+        return;
+      }
 
       // Extract both id and mid from the message
       const msgId = (msg as { id?: string; mid?: string }).id;
