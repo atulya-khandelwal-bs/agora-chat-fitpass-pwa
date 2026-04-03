@@ -16,7 +16,7 @@ import { getDietitianToken } from "./services/chatApi";
 interface FPChatAppProps {
   userId: string;
   /** Dietitian / coach id (numeric) used for getDietitianToken */
-  conversationId: string;
+  peerId: string;
   /**
    * Existing Agora group id when opening a thread from the conversation list; omit or null for a new group.
    */
@@ -48,7 +48,7 @@ interface IncomingCall {
 
 function FPChatApp({
   userId,
-  conversationId,
+  peerId,
   groupId,
   name,
   profilePhoto,
@@ -63,7 +63,6 @@ function FPChatApp({
   const appKey = config.agora.appKey;
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
-  const [peerId, setPeerId] = useState<string>("");
   const [message, setMessage] = useState<string>("");
   const [logs, setLogs] = useState<(string | LogEntry)[]>([]);
 
@@ -125,10 +124,10 @@ function FPChatApp({
     group_id: string;
   } | null> => {
     const userIdNum = Number(userId);
-    const dietitianIdNum = Number(conversationId);
-    if (!Number.isFinite(userIdNum) || !Number.isFinite(dietitianIdNum)) {
+    const peerIdNum = Number(peerId);
+    if (!Number.isFinite(userIdNum) || !Number.isFinite(peerIdNum)) {
       addLog(
-        "Invalid user_id or dietitian_id for getDietitianToken (must be numeric)."
+        "Invalid user_id or peer_id for getDietitianToken (must be numeric)."
       );
       return null;
     }
@@ -137,7 +136,7 @@ function FPChatApp({
     try {
       const data = await getDietitianToken({
         user_id: userIdNum,
-        dietitian_id: dietitianIdNum,
+        dietitian_id: peerIdNum,
         group_id: chatGroupIdRef.current,
       });
       setToken(data.token);
@@ -154,7 +153,7 @@ function FPChatApp({
     } finally {
       setIsGeneratingToken(false);
     }
-  }, [userId, conversationId, addLog]);
+  }, [userId, peerId, addLog]);
 
   const generateNewToken = useCallback(async (): Promise<string | null> => {
     if (!userId) {
@@ -348,7 +347,7 @@ function FPChatApp({
       }
     };
     checkDietitianId();
-  }, [validateDietitianId, conversationId]);
+  }, [validateDietitianId, peerId]);
 
   // Update contact with dietitian details when contact is selected
   useEffect(() => {
@@ -420,7 +419,7 @@ function FPChatApp({
 
   // Initialize group chat: getDietitianToken → token + group_id; contact targets group
   useEffect(() => {
-    const initKey = `${userId}|${conversationId}|${groupId ?? ""}`;
+    const initKey = `${userId}|${peerId}|${groupId ?? ""}`;
     if (stableInitKeyRef.current !== initKey) {
       stableInitKeyRef.current = initKey;
       directChatInitializedRef.current = false;
@@ -435,10 +434,10 @@ function FPChatApp({
     const initializeDirectChat = async (): Promise<void> => {
       try {
         addLog(
-          `Initializing chat (dietitian_id=${conversationId}, group_id=${chatGroupIdRef.current ?? "null"})`
+          `Initializing chat (peerId=${peerId}, group_id=${chatGroupIdRef.current ?? "null"})`
         );
 
-        const displayName = name || `User ${conversationId}`;
+        const displayName = name || `User ${peerId}`;
         const displayAvatar = profilePhoto || config.defaults.avatar;
 
         if (directChatInitializedRef.current && selectedContact) {
@@ -482,7 +481,6 @@ function FPChatApp({
         };
 
         setSelectedContact(contact);
-        setPeerId(session.group_id);
         contactDetailsUpdatedRef.current = null;
         directChatInitializedRef.current = true;
 
@@ -498,7 +496,7 @@ function FPChatApp({
     void initializeDirectChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    conversationId,
+    peerId,
     userId,
     groupId,
     name,
@@ -507,175 +505,6 @@ function FPChatApp({
     fetchFreshDietitianToken,
     addLog,
   ]);
-
-  // Note: userId is now a patient, not a coach
-  // coachInfo is not needed for patients - it will be set when a coach is selected
-
-  // // Poll for recent messages to catch backend-sent messages that might not trigger handlers
-  // useEffect(() => {
-  //   if (!peerId || !clientRef.current || !isLoggedIn) {
-  //     return;
-  //   }
-
-  //   // Clear processed message IDs when peerId changes to start fresh
-  //   processedMessageIdsRef.current.clear();
-
-  //   const POLL_INTERVAL = 3000; // Poll every 3 seconds
-  //   const MIN_POLL_INTERVAL = 1000; // Minimum 1 second between polls
-  //   const INITIAL_POLL_DELAY = 3000; // Delay before first poll to allow fetchInitialMessages to complete
-
-  //   const pollForMessages = async (): Promise<void> => {
-  //     const now = Date.now();
-  //     // Throttle polling to avoid too frequent requests
-  //     if (now - lastPollTimeRef.current < MIN_POLL_INTERVAL) {
-  //       return;
-  //     }
-  //     lastPollTimeRef.current = now;
-
-  //     try {
-  //       const targetId = peerId.startsWith("user_")
-  //         ? peerId.replace("user_", "")
-  //         : peerId;
-
-  //       const client = clientRef.current as {
-  //         getHistoryMessages?: (options: {
-  //           targetId: string;
-  //           chatType: string;
-  //           pageSize: number;
-  //           searchDirection: string;
-  //         }) => Promise<{
-  //           messages?: unknown[];
-  //           cursor?: string;
-  //         }>;
-  //       };
-
-  //       if (!client.getHistoryMessages) {
-  //         return;
-  //       }
-
-  //       // Fetch only the most recent message to check for new ones
-  //       const result = await client.getHistoryMessages({
-  //         targetId,
-  //         chatType: "singleChat",
-  //         pageSize: 1,
-  //         searchDirection: "up",
-  //       });
-
-  //       const messages = (result?.messages || []) as Array<{
-  //         id?: string;
-  //         mid?: string;
-  //         from?: string;
-  //         to?: string;
-  //         time?: number;
-  //         type?: string;
-  //         msg?: string;
-  //         customExts?: unknown;
-  //         "v2:customExts"?: unknown;
-  //         body?: unknown;
-  //         ext?: unknown;
-  //       }>;
-
-  //       if (messages.length > 0) {
-  //         const latestMessage = messages[0];
-  //         // Generate all possible message ID formats to check against processed set
-  //         const messageId =
-  //           latestMessage.id ||
-  //           latestMessage.mid ||
-  //           `${latestMessage.from}-${latestMessage.time}`;
-  //         const messageIdAlt1 = latestMessage.id || null;
-  //         const messageIdAlt2 = latestMessage.mid || null;
-  //         const messageIdAlt3 =
-  //           latestMessage.from && latestMessage.time
-  //             ? `${latestMessage.from}-${latestMessage.time}`
-  //             : null;
-
-  //         // Check if we've already processed this message (in any ID format)
-  //         const isAlreadyProcessed =
-  //           processedMessageIdsRef.current.has(messageId) ||
-  //           (messageIdAlt1 &&
-  //             processedMessageIdsRef.current.has(messageIdAlt1)) ||
-  //           (messageIdAlt2 &&
-  //             processedMessageIdsRef.current.has(messageIdAlt2)) ||
-  //           (messageIdAlt3 &&
-  //             processedMessageIdsRef.current.has(messageIdAlt3));
-
-  //         if (isAlreadyProcessed) {
-  //           // Message is already processed (likely from fetchInitialMessages)
-  //           // Skip it to prevent duplicates
-
-  //           return;
-  //         }
-
-  //         // Check if this message is already in logs
-  //         const messageInLogs = logs.some((log) => {
-  //           if (typeof log === "string") {
-  //             return log.includes(messageId);
-  //           }
-  //           return (
-  //             log.serverMsgId === messageId ||
-  //             log.serverMsgId === messageIdAlt1 ||
-  //             log.serverMsgId === messageIdAlt2 ||
-  //             log.serverMsgId === messageIdAlt3
-  //           );
-  //         });
-
-  //         if (!messageInLogs) {
-  //           // Mark all ID formats as processed BEFORE processing
-  //           processedMessageIdsRef.current.add(messageId);
-  //           if (messageIdAlt1) {
-  //             processedMessageIdsRef.current.add(messageIdAlt1);
-  //           }
-  //           if (messageIdAlt2) {
-  //             processedMessageIdsRef.current.add(messageIdAlt2);
-  //           }
-  //           if (messageIdAlt3) {
-  //             processedMessageIdsRef.current.add(messageIdAlt3);
-  //           }
-
-  //           // This is a new message that wasn't caught by handlers
-  //           // Process it through the handlers manually
-
-  //           // Trigger the appropriate handler based on message type
-  //           if (latestMessage.type === "custom" && handlers.onCustomMessage) {
-  //             handlers.onCustomMessage(latestMessage as MessageBody);
-  //           } else if (latestMessage.type === "txt" && handlers.onTextMessage) {
-  //             handlers.onTextMessage(latestMessage as MessageBody);
-  //           }
-  //         } else {
-  //           // Message is in logs, mark as processed but don't process again
-  //           processedMessageIdsRef.current.add(messageId);
-  //           if (messageIdAlt1) {
-  //             processedMessageIdsRef.current.add(messageIdAlt1);
-  //           }
-  //           if (messageIdAlt2) {
-  //             processedMessageIdsRef.current.add(messageIdAlt2);
-  //           }
-  //           if (messageIdAlt3) {
-  //             processedMessageIdsRef.current.add(messageIdAlt3);
-  //           }
-  //         }
-  //       }
-  //     } catch (error) {
-  //       console.error("Error polling for messages:", error);
-  //     }
-  //   };
-
-  //   // Delay the first poll to allow fetchInitialMessages to complete
-  //   // This prevents duplicate messages from appearing on page load/refresh
-  //   let intervalId: NodeJS.Timeout | null = null;
-  //   const initialTimeoutId = setTimeout(() => {
-  //     pollForMessages();
-  //     intervalId = setInterval(pollForMessages, POLL_INTERVAL);
-  //   }, INITIAL_POLL_DELAY);
-
-  //   return () => {
-  //     clearTimeout(initialTimeoutId);
-  //     if (intervalId) {
-  //       clearInterval(intervalId);
-  //     }
-  //   };
-  //   // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, [peerId, isLoggedIn, clientRef, logs.length]);
 
   const handleLogout = (): void => {
     if (
@@ -686,7 +515,6 @@ function FPChatApp({
     }
     setIsLoggedIn(false);
     setSelectedContact(null);
-    setPeerId("");
     setMessage("");
     // Call parent's logout handler if provided
     if (onLogout) {
@@ -698,15 +526,12 @@ function FPChatApp({
   const handleInitiateCall = async (
     callType: "video" | "audio" = "video"
   ): Promise<void> => {
-    if (!peerId || !userId) {
-      addLog("Cannot initiate call: Missing user or peer ID");
+    if (!chatGroupId || !userId) {
+      addLog("Cannot initiate call: Missing user or group ID");
       return;
     }
 
-    // Generate channel name using format: fp_rtc_call_CALLTYPE_USERID_PEERID_group
-    // CALLTYPE => video or voice
-    // USERID => userId (the user's ID)
-    // PEERID => peerId (the dietitian/coach ID)
+    // Generate channel name using format: fp_rtc_call_CALLTYPE_USERID_GROUPID_group
     const callTypeStr = callType === "video" ? "video" : "voice";
     const channel = `fp_rtc_call_${callTypeStr}_${userId}_${peerId}_group`;
 
@@ -725,13 +550,13 @@ function FPChatApp({
       channel,
       isInitiator: true,
       callType: callType,
-      localUserName: userId, // userId is now the patient - will be used as fallback
-      localUserPhoto: undefined, // Local user photo - can be fetched from user profile if available
+      localUserName: userId,
+      localUserPhoto: undefined,
       peerName: selectedContact?.name || peerId,
       peerAvatar: selectedContact?.avatar,
     });
 
-    addLog(`Initiating ${callType} call with ${userId}`);
+    addLog(`Initiating ${callType} call with peer ${peerId}`);
   };
 
   // Handle schedule call - refetch dietitian details after scheduling
@@ -834,7 +659,7 @@ function FPChatApp({
 
   // Conversation list removed — no-op; type matches FPChatInterface callback
   const updateLastMessageFromHistory: (
-    peerId: string,
+    groupId: string,
     formattedMsg: Message
   ) => void = () => {};
 
@@ -961,10 +786,9 @@ function FPChatApp({
       const extProperties = {
         senderName: coachInfo.coachName || userId,
         senderProfile: coachInfo.profilePhoto || config.defaults.avatar,
-        isFromUser: false,
+        isFromUser: true,
         targetUserId: ALWAYS_SEND_PATIENT_ID,
-        /** Dietitian id on PWA (prop `conversationId`) */
-        receiverId: conversationId,
+        receiverId: peerId,
       };
 
       let options: {
@@ -1031,8 +855,8 @@ function FPChatApp({
 
         // Capture serverMsgId from response for message editing
         const serverMsgId = (response as { serverMsgId?: string })?.serverMsgId;
-        // Log format must be `You → <peerId>:` so FPChatInterface's log filter
-        // (match[1] === peerId) includes outgoing messages; peerId is the group id.
+        // Log format must be `You → <groupId>:` so FPChatInterface's log filter
+        // (match[1] === groupId) includes outgoing messages; groupId is the Agora group id.
         const outgoingLog = `You → ${chatGroupId}: ${messageString}`;
         if (serverMsgId) {
           addLog({
@@ -1077,7 +901,7 @@ function FPChatApp({
     return (
       <div className="fp-chat-wrapper">
         <FP404Error
-          message={`Dietitian ID "${conversationId}" not found`}
+          message={`Peer ID "${peerId}" not found`}
           onRetry={async () => {
             setShow404Error(false);
             const isValid = await validateDietitianId();
@@ -1154,10 +978,8 @@ function FPChatApp({
             ) : (
               <FPChatInterface
                 userId={userId}
-                dietitianId={conversationId}
-                peerId={peerId || null}
+                peerId={peerId}
                 groupId={chatGroupId}
-                setPeerId={(id: string | null) => setPeerId(id || "")}
                 message={message}
                 setMessage={setMessage}
                 onSend={handleSendMessage}

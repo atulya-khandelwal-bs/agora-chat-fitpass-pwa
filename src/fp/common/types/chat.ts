@@ -40,7 +40,7 @@ export interface Message {
   avatar?: string;
   system?: SystemMessageData;
   createdAt?: string | Date;
-  peerId?: string;
+  groupId?: string;
   callAction?: string;
   channel?: string;
   isEdited?: boolean;

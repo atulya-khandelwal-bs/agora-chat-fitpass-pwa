@@ -51,8 +51,8 @@ export default function FPMessageBubble({
       return (
         <FPAudioMessageView
           audioUrl={msg.audioUrl}
-          audioTranscription={msg.audioTranscription}
           currentlyPlayingAudioRef={currentlyPlayingAudioRef}
+          isIncoming={msg.isIncoming}
         />
       );
     }

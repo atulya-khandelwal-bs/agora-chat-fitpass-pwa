@@ -4,11 +4,16 @@ import type { Message } from "../../common/types/chat";
 
 interface FPScheduledCallBannerProps {
   scheduledCall: Message;
+  scheduledCallFromApi?: {
+    call_date_time: number;
+    call_type?: "video" | "audio";
+  } | null;
   onClick?: () => void;
 }
 
 export default function FPScheduledCallBanner({
   scheduledCall,
+  // scheduledCallFromApi,
   onClick,
 }: FPScheduledCallBannerProps): React.JSX.Element | null {
   // Extract scheduled time
@@ -120,6 +125,35 @@ export default function FPScheduledCallBanner({
 
   const dateTimeText = formatDateTime(scheduledDate);
 
+  // COMMENTED OUT: 5-minute restriction - allowing instant call joining
+  // const isWithinFiveMinutes = (): boolean => {
+  //   if (!scheduledCallFromApi?.call_date_time) {
+  //     if (!scheduledTime) {
+  //       return false;
+  //     }
+  //     const scheduledDateFromTime = new Date(scheduledTime * 1000);
+  //     const now = new Date();
+  //     const timeDiff = scheduledDateFromTime.getTime() - now.getTime();
+  //     const fiveMinutesInMs = 5 * 60 * 1000;
+  //     return timeDiff > 0 && timeDiff <= fiveMinutesInMs;
+  //   }
+  //
+  //   const scheduledDateFromApi = new Date(
+  //     scheduledCallFromApi.call_date_time * 1000
+  //   );
+  //   const now = new Date();
+  //
+  //   if (scheduledDateFromApi <= now) {
+  //     return false;
+  //   }
+  //
+  //   const timeDiff = scheduledDateFromApi.getTime() - now.getTime();
+  //   const fiveMinutesInMs = 5 * 60 * 1000;
+  //
+  //   return timeDiff <= fiveMinutesInMs;
+  // };
+
+  const canJoinCall = true;
   const handleClick = onClick;
 
   return (
@@ -207,7 +241,8 @@ export default function FPScheduledCallBanner({
         </span>
       </div>
 
-      {handleClick && <ChevronRight size={12} color="#FFFFFF" />}
+      {/* Arrow Icon - Only show if within 5 minutes */}
+      {canJoinCall && handleClick && <ChevronRight size={12} color="#FFFFFF" />}
     </div>
   );
 }

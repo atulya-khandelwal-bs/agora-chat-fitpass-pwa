@@ -508,8 +508,8 @@
   padding: 8px 12px;
 }
 
-/* Audio: flex parent had no width; width:100% on <audio> collapsed the bubble */
-.fp-chat-wrapper .message-bubble:has(.fp-audio) {
+/* Audio: custom player row needs a stable min width */
+.fp-chat-wrapper .message-bubble:has(.fp-audio-player) {
   min-width: 220px;
 }
 
@@ -1040,50 +1040,6 @@
 .fp-chat-wrapper .chat-loading-text {
   color: var(--fp-muted);
   font-size: 14px;
-}
-
-.fp-chat-wrapper .chat-session-paused {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 2rem;
-  gap: 1rem;
-  text-align: center;
-  background: var(--fp-bg);
-  max-width: 28rem;
-  margin: 0 auto;
-}
-
-.fp-chat-wrapper .chat-session-paused-title {
-  margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--fp-text);
-}
-
-.fp-chat-wrapper .chat-session-paused-hint {
-  margin: 0;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--fp-muted);
-}
-
-.fp-chat-wrapper .chat-session-paused-button {
-  margin-top: 0.5rem;
-  padding: 0.625rem 1.25rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #fff;
-  background: var(--fp-primary);
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.fp-chat-wrapper .chat-session-paused-button:hover {
-  filter: brightness(1.05);
 }
 
 .fp-chat-wrapper .empty-state {
@@ -1619,62 +1575,197 @@
   }
 }
 
-.fp-chat-wrapper .fp-audio {
-  display: block;
+/* ----- Chat audio messages (custom UI; native <audio controls> cannot style seek + thumb) ----- */
+/* Same outer box as legacy native `.fp-audio`: 240×100% width, ~48px bar height */
+.fp-chat-wrapper .fp-audio-player {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 240px;
   max-width: 100%;
+  height: 48px;
+  min-height: 48px;
   box-sizing: border-box;
-  background: transparent !important;
 }
 
-.fp-chat-wrapper .fp-audio::-webkit-media-controls-panel {
-  background-color: transparent !important;
+.fp-chat-wrapper .fp-audio-player__media {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.fp-chat-wrapper .fp-audio::-webkit-media-controls-enclosure {
-  background-color: transparent !important;
+.fp-chat-wrapper .fp-audio-player__play {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  color: inherit;
 }
 
-/* Hide 3 dots menu button */
-.fp-chat-wrapper .fp-audio::-webkit-media-controls-overflow-button {
-  display: none !important;
+.fp-chat-wrapper .fp-audio-player__play:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
-/* Also hide download / cast buttons if they appear */
-.fp-chat-wrapper .fp-audio::-webkit-media-controls-download-button {
-  display: none !important;
-}
-.fp-chat-wrapper .fp-audio::-webkit-media-controls-cast-button {
-  display: none !important;
+.fp-chat-wrapper .fp-audio-player__seek:focus {
+  outline: none;
 }
 
-/*
- * Outgoing (green) bubbles: invert default black chrome to white on green.
- * No color-scheme: dark (avoids extra elevation/shadow on native controls).
- * Strip box shadows so the bar stays flat.
- */
-.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-enclosure {
-  box-shadow: none !important;
-  -webkit-box-shadow: none !important;
+.fp-chat-wrapper .fp-audio-player__seek:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
-.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-panel {
-  filter: brightness(0) invert(1);
-  box-shadow: none !important;
-  -webkit-box-shadow: none !important;
+.fp-chat-wrapper .fp-audio-player--outgoing {
+  color: #ffffff;
 }
 
-.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-current-time-display,
-.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-time-remaining-display {
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
-  text-shadow: none !important;
+.fp-chat-wrapper .fp-audio-player--incoming {
+  color: #374151;
 }
 
-.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-timeline-container,
-.fp-chat-wrapper .message-wrapper.outgoing .fp-audio::-webkit-media-controls-volume-slider-container {
-  box-shadow: none !important;
-  -webkit-box-shadow: none !important;
+.fp-chat-wrapper .fp-audio-player__time {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fp-chat-wrapper .fp-audio-player__seek {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Outgoing: white track + filled portion + circular thumb */
+.fp-chat-wrapper .fp-audio-player--outgoing .fp-audio-player__seek {
+  accent-color: #ffffff;
+}
+
+.fp-chat-wrapper .fp-audio-player--outgoing .fp-audio-player__seek::-webkit-slider-runnable-track {
+  height: 4px;
+  border: none;
+  border-radius: 2px;
+  box-shadow: none;
+  background: linear-gradient(
+    to right,
+    #ffffff 0%,
+    #ffffff var(--fp-audio-progress, 0%),
+    rgba(255, 255, 255, 0.4) var(--fp-audio-progress, 0%),
+    rgba(255, 255, 255, 0.4) 100%
+  );
+}
+
+.fp-chat-wrapper .fp-audio-player--outgoing .fp-audio-player__seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.fp-chat-wrapper .fp-audio-player--outgoing .fp-audio-player__seek::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.4);
+  border: none;
+}
+
+.fp-chat-wrapper .fp-audio-player--outgoing .fp-audio-player__seek::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: #ffffff;
+  border: none;
+}
+
+.fp-chat-wrapper .fp-audio-player--outgoing .fp-audio-player__seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+/* Incoming: dark thumb / track on gray bubble */
+.fp-chat-wrapper .fp-audio-player--incoming .fp-audio-player__seek {
+  accent-color: #374151;
+}
+
+.fp-chat-wrapper .fp-audio-player--incoming .fp-audio-player__seek::-webkit-slider-runnable-track {
+  height: 4px;
+  border: none;
+  border-radius: 2px;
+  box-shadow: none;
+  background: linear-gradient(
+    to right,
+    #374151 0%,
+    #374151 var(--fp-audio-progress, 0%),
+    #d1d5db var(--fp-audio-progress, 0%),
+    #d1d5db 100%
+  );
+}
+
+.fp-chat-wrapper .fp-audio-player--incoming .fp-audio-player__seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
+  background: #374151;
+  cursor: pointer;
+}
+
+.fp-chat-wrapper .fp-audio-player--incoming .fp-audio-player__seek::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: #d1d5db;
+  border: none;
+}
+
+.fp-chat-wrapper .fp-audio-player--incoming .fp-audio-player__seek::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: #374151;
+  border: none;
+}
+
+.fp-chat-wrapper .fp-audio-player--incoming .fp-audio-player__seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
+  background: #374151;
+  cursor: pointer;
 }
 
 /* ----- Audio recording overlay (below composer on mobile) ----- */

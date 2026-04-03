@@ -411,7 +411,7 @@ export const getSystemLabel = (
 export const formatMessage = (
   msg: AgoraMessage | ApiMessage | string | null | undefined,
   userId: string,
-  peerId: string,
+  groupId: string,
   selectedContact: Contact | null,
   coachInfo: CoachInfo
 ): Message | null => {
@@ -441,7 +441,7 @@ export const formatMessage = (
     const agoraMsg: AgoraMessage = {
       id: backendMsg.message_id || `backend-${Date.now()}-${Math.random()}`,
       from: backendMsg.from_user || backendMsg.sender_name || userId,
-      to: backendMsg.to_user || peerId,
+      to: backendMsg.to_user || groupId,
       time:
         typeof backendMsg.created_at_ms === "number"
           ? backendMsg.created_at_ms
@@ -483,7 +483,7 @@ export const formatMessage = (
         minute: "2-digit",
       }),
       isIncoming: true,
-      peerId,
+      groupId,
       avatar: config.defaults.avatar,
       messageType: "text",
     };
@@ -492,10 +492,11 @@ export const formatMessage = (
   // At this point, msg should be AgoraMessage (converted from ApiMessage if needed)
   const agoraMsg = msg as AgoraMessage;
 
+  // Determine direction by comparing sender with the logged-in userId.
+  // The API's `isFromUser` means "from patient" (not "from current user"),
+  // so we must NOT rely on it — compare `from` directly.
   const fromCurrentUser =
-    typeof agoraMsg.isFromUser === "boolean"
-      ? agoraMsg.isFromUser
-      : agoraMsg.from === userId;
+    agoraMsg.from === userId || String(agoraMsg.from) === String(userId);
 
   // Determine avatar: use sender_photo from API if available, otherwise use defaults
   let messageAvatar: string | null = null;
@@ -521,7 +522,7 @@ export const formatMessage = (
       minute: "2-digit",
     }),
     isIncoming: !fromCurrentUser,
-    peerId,
+    groupId,
     avatar: messageAvatar,
     mid: agoraMsg.mid, // Preserve mid for message editing
     serverMsgId: agoraMsg.id, // Preserve server message ID for matching edited messages

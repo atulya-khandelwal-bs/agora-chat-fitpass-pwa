@@ -5,7 +5,7 @@ import type { Message } from "../../common/types/chat";
 import React from "react";
 
 interface FPChatTabProps {
-  peerId: string;
+  groupId: string;
   currentConversationMessages: Message[];
   formatDateLabel: (date: Date) => string;
   formatCurrency: (amount: number) => string;
@@ -20,7 +20,7 @@ interface FPChatTabProps {
 }
 
 export default function FPChatTab({
-  peerId,
+  groupId,
   currentConversationMessages,
   formatDateLabel,
   formatCurrency,
@@ -243,7 +243,7 @@ export default function FPChatTab({
         </div>
       )}
 
-      {!peerId || currentConversationMessages.length === 0 ? (
+      {!groupId || currentConversationMessages.length === 0 ? (
         <div className="empty-chat">
           <p>No messages yet. Start the conversation!</p>
         </div>

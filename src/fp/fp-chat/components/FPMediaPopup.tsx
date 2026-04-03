@@ -13,7 +13,7 @@ interface FPMediaPopupProps {
   getDraftCaption: () => string;
   selectedContact: Contact | null;
   isRecording: boolean;
-  peerId: string;
+  groupId: string;
   inputResetKey: number;
   onSend: () => void;
   onKeyPress: (e: KeyboardEvent<HTMLInputElement>) => void;
@@ -32,7 +32,7 @@ export default function FPMediaPopup({
   getDraftCaption,
   selectedContact,
   isRecording,
-  peerId,
+  groupId,
   inputResetKey,
   onSend,
   onKeyPress,
@@ -160,7 +160,7 @@ export default function FPMediaPopup({
               <input
                 ref={inputRef}
                 type="text"
-                key={`${peerId}-${inputResetKey}`}
+                key={`${groupId}-${inputResetKey}`}
                 placeholder={
                   draftAttachment && draftAttachment.type === "audio"
                     ? "Add a caption (optional)"

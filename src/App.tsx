@@ -7,13 +7,13 @@ const userId = 220044;
 function App(): React.JSX.Element {
   // Use URL params or defaults
   const finalUserId = String(userId);
-  const finalConversationId = "333"; // Default conversation ID
+  const finalPeerId = "333"; // Default peer (dietitian) ID
 
   // Only pass required props - dietitian details (name, photo, profile) are fetched automatically
   return (
     <FPChatApp
       userId={finalUserId}
-      conversationId={finalConversationId}
+      peerId={finalPeerId}
       onLogout={() => {
         console.log("User logged out from chat");
       }}

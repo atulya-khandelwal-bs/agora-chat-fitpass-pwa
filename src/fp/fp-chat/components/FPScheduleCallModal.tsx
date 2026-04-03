@@ -31,8 +31,8 @@ interface FPScheduleCallModalProps {
   ) => void;
   selectedContact: Contact | null;
   userId: string;
-  /** Dietitian id — same value for `targetUserId` and `receiverId` on send-custom-message. */
-  dietitianId: string;
+  /** Peer (dietitian) id — same value for `targetUserId` and `receiverId` on send-custom-message. */
+  peerId: string;
   /** Agora group id — required to notify chat when scheduling. */
   groupId: string | null;
   scheduledCallFromApi?: {
@@ -50,7 +50,7 @@ export default function FPScheduleCallModal({
   onSchedule,
   selectedContact,
   userId,
-  dietitianId,
+  peerId,
   groupId,
   scheduledCallFromApi,
   onCancelCall,
@@ -350,9 +350,9 @@ export default function FPScheduleCallModal({
           await sendCustomMessage({
             from: userId,
             groupId,
-            targetUserId: dietitianId,
+            targetUserId: peerId,
             isFromUser: false,
-            receiverId: dietitianId,
+            receiverId: peerId,
             type: "call_scheduled",
             data: {
               type: "call_scheduled",

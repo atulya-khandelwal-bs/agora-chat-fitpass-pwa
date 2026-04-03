@@ -21,10 +21,6 @@ import {
   parseSystemPayload,
   getSystemLabel,
 } from "../utils/messageFormatters.ts";
-import {
-  extractChatBodyFromLogLine,
-  shouldSuppressMultiDeviceSessionChatPayload,
-} from "../utils/chatPayloadFilters.ts";
 import { cancelCallWithDietitian } from "../services/dietitianApi";
 import { sendCustomMessage, type ApiMessage } from "../services/chatApi";
 
@@ -68,12 +64,10 @@ import type {
 
 interface FPChatInterfaceProps {
   userId: string;
-  /** Dietitian id (same as FPChatApp `conversationId`). */
-  dietitianId: string;
-  peerId: string | null;
+  /** Dietitian / peer id (numeric). */
+  peerId: string;
   /** Agora group id — used as targetId for group history (getHistoryMessages). */
   groupId: string | null;
-  setPeerId: (id: string | null) => void;
   message: string;
   setMessage: (msg: string | ((prev: string) => string)) => void;
   onSend: (msg: string | object) => void;
@@ -92,7 +86,7 @@ interface FPChatInterfaceProps {
         callType: "video" | "audio"
       ) => void)
     | null;
-  onUpdateLastMessageFromHistory?: (peerId: string, message: Message) => void;
+  onUpdateLastMessageFromHistory?: (groupId: string, message: Message) => void;
   onMessagesLoadedFromHistory?: (messageIds: string[]) => void;
   coachInfo?: CoachInfo;
   scheduledCallFromApi?: {
@@ -107,10 +101,8 @@ interface FPChatInterfaceProps {
 
 export default function FPChatInterface({
   userId,
-  dietitianId,
   peerId,
   groupId,
-  setPeerId: _setPeerId,
   message,
   setMessage,
   onSend,
@@ -443,7 +435,7 @@ export default function FPChatInterface({
 
     chatArea.addEventListener("scroll", handleScroll);
     return () => chatArea.removeEventListener("scroll", handleScroll);
-  }, [peerId, isFetchingHistory, hasMore, cursor]);
+  }, [groupId, isFetchingHistory, hasMore, cursor]);
 
   // Auto-scroll to bottom after layout (new content may change scrollHeight)
   const scrollToBottom = (): void => {
@@ -456,7 +448,7 @@ export default function FPChatInterface({
 
   // Convert logs to message format
   useEffect(() => {
-    if (!peerId) {
+    if (!groupId) {
       setMessages([]);
       return;
     }
@@ -518,23 +510,16 @@ export default function FPChatInterface({
       return na === nb;
     };
 
-    const isGroupThread = Boolean(groupId && peerId === groupId);
+    const isGroupThread = Boolean(groupId);
 
     const filteredLogs = logEntries.filter((entry) => {
       const { log } = entry;
       if (!log) return false;
-      const bodyProbe = extractChatBodyFromLogLine(log);
-      if (
-        bodyProbe &&
-        shouldSuppressMultiDeviceSessionChatPayload(bodyProbe)
-      ) {
-        return false;
-      }
       // Filter messages for the current conversation
       if (log.includes("→")) {
-        // Outgoing message: "You → peerId: message"
+        // Outgoing message: "You → groupId: message"
         const match = log.match(/You → ([^:]+):/);
-        return match && match[1].trim() === peerId;
+        return match && match[1].trim() === groupId;
       }
       // Incoming: handlers use "senderId: content" (space after colon). Avoid split(":") — JSON bodies contain colons.
       const incomingSep = ": ";
@@ -542,11 +527,11 @@ export default function FPChatInterface({
       if (sepIdx > 0) {
         const senderId = log.slice(0, sepIdx).trim();
         if (!senderId) return false;
-        // 1:1 chat: peer id is the other user
-        if (senderId === peerId || sameChatUser(senderId, peerId)) {
+        // 1:1 chat: sender matches group id
+        if (senderId === groupId || sameChatUser(senderId, groupId || "")) {
           return true;
         }
-        // Group chat: peerId is the group id, but Agora sets msg.from to the member's user id — strict equality never matches.
+        // Group chat: groupId is the Agora group id, but Agora sets msg.from to the member's user id — strict equality never matches.
         if (
           isGroupThread &&
           !sameChatUser(senderId, userId) &&
@@ -582,7 +567,7 @@ export default function FPChatInterface({
         const uniqueTimestamp = logHash + logIndex;
 
         if (isOutgoing) {
-          // Parse "You → peerId: message"
+          // Parse "You → groupId: message"
           // Updated regex to handle JSON strings that may contain colons
           const match = log.match(/You → [^:]+: (.+)$/);
           let content = match ? match[1].trim() : "";
@@ -907,7 +892,7 @@ export default function FPChatInterface({
           // Use serverMsgId if available (from send response), otherwise generate local ID
           const messageId =
             serverMsgId ||
-            `outgoing-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
+            `outgoing-${groupId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
 
           // Ensure products is always an array when messageType is products
           const finalProducts =
@@ -945,7 +930,7 @@ export default function FPChatInterface({
             }),
             isIncoming: false, // Outgoing message - right side
             avatar: coachInfo?.profilePhoto || config.defaults.userAvatar,
-            peerId, // Store peerId for conversation tracking
+            groupId, // Store groupId for conversation tracking
           };
         } else {
           // Parse "senderId: message"
@@ -1296,7 +1281,7 @@ export default function FPChatInterface({
             return null;
           }
 
-          const generatedId = `incoming-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
+          const generatedId = `incoming-${groupId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
 
           // Ensure products is always an array when messageType is products
           const finalProducts =
@@ -1339,7 +1324,7 @@ export default function FPChatInterface({
             }),
             isIncoming: true, // Incoming message - left side
             avatar: selectedContact?.avatar || config.defaults.avatar,
-            peerId, // Store peerId for conversation tracking
+            groupId, // Store groupId for conversation tracking
             mid: messageMid, // Message ID from delivery receipt (for editing)
             serverMsgId: messageServerMsgId, // Server message ID (for matching edited messages)
             isEdited: messageIsEdited, // Flag to indicate this is an edited message
@@ -1348,11 +1333,11 @@ export default function FPChatInterface({
       })
       .filter((msg) => msg !== null); // Filter out null messages (hidden call messages)
 
-    // Only show messages for the current conversation (peerId)
+    // Only show messages for the current conversation (groupId)
     setMessages((prev) => {
-      // If peerId changed, reset messages for the new conversation
+      // If groupId changed, reset messages for the new conversation
 
-      const currentPeerMessages = prev.filter((msg) => msg.peerId === peerId);
+      const currentPeerMessages = prev.filter((msg) => msg.groupId === groupId);
 
       // Create a set of existing message IDs to prevent duplicates
       const existingIds = new Set(currentPeerMessages.map((msg) => msg.id));
@@ -1882,10 +1867,10 @@ export default function FPChatInterface({
         });
 
       // Return merged messages along with messages from other peers
-      const otherPeerMessages = prev.filter((msg) => msg.peerId !== peerId);
+      const otherPeerMessages = prev.filter((msg) => msg.groupId !== groupId);
       return [...otherPeerMessages, ...allMessages];
     });
-  }, [logs, peerId, groupId, userId, selectedContact]);
+  }, [logs, groupId, userId, selectedContact]);
 
   // Sync chatClient prop to ref
   useEffect(() => {
@@ -1932,12 +1917,12 @@ export default function FPChatInterface({
   // Filter messages to only show current conversation when displaying
 
   const currentConversationMessages = messages.filter(
-    (msg) => msg.peerId === peerId
+    (msg) => msg.groupId === groupId
   );
 
   const newestMessageTailKey = useMemo(() => {
-    if (!peerId) return null;
-    const list = messages.filter((msg) => msg.peerId === peerId);
+    if (!groupId) return null;
+    const list = messages.filter((msg) => msg.groupId === groupId);
     if (list.length === 0) return null;
     const sorted = [...list].sort((a, b) => {
       const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -1946,16 +1931,16 @@ export default function FPChatInterface({
     });
     const m = sorted[sorted.length - 1];
     return `${m.id}|${m.createdAt ? new Date(m.createdAt).getTime() : 0}`;
-  }, [peerId, messages]);
+  }, [groupId, messages]);
 
   useEffect(() => {
     latestTailKeyRef.current = null;
-  }, [peerId]);
+  }, [groupId]);
 
   // Scroll to bottom when the chronologically newest message changes (send or receive),
   // not when older pages are prepended. Ignore skip refs so new events still scroll after a load-more.
   useEffect(() => {
-    if (!peerId) return;
+    if (!groupId) return;
     if (newestMessageTailKey === null) {
       latestTailKeyRef.current = null;
       return;
@@ -1972,12 +1957,12 @@ export default function FPChatInterface({
         el.scrollTop = el.scrollHeight;
       });
     });
-  }, [peerId, newestMessageTailKey, isFetchingHistory]);
+  }, [groupId, newestMessageTailKey, isFetchingHistory]);
 
-  // Reset input key when peer changes to ensure clean state
+  // Reset input key when conversation changes to ensure clean state
   useEffect(() => {
     setInputResetKey(0);
-  }, [peerId]);
+  }, [groupId]);
 
   // Watch for message clearing after send to reset input
   useEffect(() => {
@@ -2454,6 +2439,10 @@ export default function FPChatInterface({
         stream.getTracks().forEach((t) => t.stop());
         mediaStreamRef.current = null;
       }
+      const video = videoRef.current;
+      if (video && video.srcObject) {
+        video.srcObject = null;
+      }
     } catch {}
   };
 
@@ -2869,8 +2858,6 @@ export default function FPChatInterface({
   // Image viewer helpers
   const openImageViewer = (url: string, alt?: string): void => {
     if (!url) return;
-    // Dismiss keyboard before input unmounts (mobile PWA); avoids focus churn with overlay
-    inputRef.current?.blur();
     setImageViewerUrl(url);
     setImageViewerAlt(alt || "Image");
     // Optional: lock background scroll if desired
@@ -2932,68 +2919,67 @@ export default function FPChatInterface({
 
     setIsFetchingHistory(true);
     try {
-      const conversationId = peerId?.startsWith("user_")
-        ? peerId
-        : `user_${peerId ?? groupId}`;
+      const conversationId = groupId;
 
       const pageSize = config.chat.pageSize || 20;
       const maxDbPages = 500;
 
-      const client = chatClient as Connection & {
-        getHistoryMessages?: (options: {
-          targetId: string;
-          chatType: string;
-          pageSize: number;
-          searchDirection: string;
-          cursor?: string;
-        }) => Promise<{
-          messages?: unknown[];
-          cursor?: string;
-          isLast?: boolean;
-        }>;
-      };
+      // --- AGORA FETCH DISABLED FOR API TESTING ---
+      // const client = chatClient as Connection & {
+      //   getHistoryMessages?: (options: {
+      //     targetId: string;
+      //     chatType: string;
+      //     pageSize: number;
+      //     searchDirection: string;
+      //     cursor?: string;
+      //   }) => Promise<{
+      //     messages?: unknown[];
+      //     cursor?: string;
+      //     isLast?: boolean;
+      //   }>;
+      // };
 
-      let agoraMessages: AgoraMessage[] = [];
+      const agoraMessages: AgoraMessage[] = [];
 
-      // 1) Fetch all pages from Agora (group thread) before touching DB; stop on SDK/roaming errors
-      if (client.getHistoryMessages) {
-        let agoraCursor: string | undefined;
-        for (;;) {
-          let agoraResMaybe: {
-            messages?: unknown[];
-            cursor?: string;
-            isLast?: boolean;
-          };
-          try {
-            agoraResMaybe = await client.getHistoryMessages({
-              targetId: groupId,
-              chatType: "groupChat",
-              pageSize,
-              searchDirection: "up",
-              ...(agoraCursor ? { cursor: agoraCursor } : {}),
-            });
-          } catch {
-            break;
-          }
-          const batch = (agoraResMaybe?.messages || []) as AgoraMessage[];
-          agoraMessages.push(...batch);
-
-          const batchMin = minAgoraMessageTimeMs(batch);
-          if (batchMin !== undefined) {
-            minAgoraTimeMsRef.current =
-              minAgoraTimeMsRef.current === undefined
-                ? batchMin
-                : Math.min(minAgoraTimeMsRef.current, batchMin);
-          }
-
-          const noMoreAgora =
-            batch.length === 0 ||
-            !agoraResMaybe?.cursor ||
-            agoraResMaybe?.isLast;
-          if (noMoreAgora) break;
-          agoraCursor = String(agoraResMaybe.cursor);
-        }
-      }
+      // // 1) Fetch all pages from Agora (group thread) before touching DB
+      // if (client.getHistoryMessages) {
+      //   let agoraCursor: string | undefined;
+      //   for (;;) {
+      //     let agoraResMaybe: {
+      //       messages?: unknown[];
+      //       cursor?: string;
+      //       isLast?: boolean;
+      //     };
+      //     try {
+      //       agoraResMaybe = await client.getHistoryMessages({
+      //         targetId: groupId,
+      //         chatType: "groupChat",
+      //         pageSize,
+      //         searchDirection: "up",
+      //         ...(agoraCursor ? { cursor: agoraCursor } : {}),
+      //       });
+      //     } catch {
+      //       break;
+      //     }
+      //     const batch = (agoraResMaybe?.messages || []) as AgoraMessage[];
+      //     agoraMessages.push(...batch);
+      //
+      //     const batchMin = minAgoraMessageTimeMs(batch);
+      //     if (batchMin !== undefined) {
+      //       minAgoraTimeMsRef.current =
+      //         minAgoraTimeMsRef.current === undefined
+      //           ? batchMin
+      //           : Math.min(minAgoraTimeMsRef.current, batchMin);
+      //     }
+      //
+      //     const noMoreAgora =
+      //       batch.length === 0 ||
+      //       !agoraResMaybe?.cursor ||
+      //       agoraResMaybe?.isLast;
+      //     if (noMoreAgora) break;
+      //     agoraCursor = String(agoraResMaybe.cursor);
+      //   }
+      // }
 
       agoraHistoryCursorRef.current = null;
       agoraHistoryExhaustedRef.current = true;
@@ -3001,11 +2987,8 @@ export default function FPChatInterface({
       let apiMessages: ApiMessage[] = [];
       let lastDbNextCursor: string | undefined;
 
-      // 2) DB: cursor = timestamp (ms) of oldest Agora message; then follow nextCursor until exhausted
-      const oldestAgoraMs = minAgoraTimeMsRef.current;
-      let dbCursor: string | undefined =
-        oldestAgoraMs !== undefined ? String(oldestAgoraMs) : undefined;
-      let dbFirstPageAfterAgora = oldestAgoraMs !== undefined;
+      // 2) DB: fetch messages from backend API (Agora disabled for testing)
+      let dbCursor: string | undefined;
 
       try {
         for (let p = 0; p < maxDbPages; p++) {
@@ -3014,19 +2997,28 @@ export default function FPChatInterface({
           apiUrl.searchParams.append("limit", String(pageSize));
           if (dbCursor) {
             apiUrl.searchParams.append("cursor", dbCursor);
-            if (dbFirstPageAfterAgora) {
-              apiUrl.searchParams.append("from", dbCursor);
-              dbFirstPageAfterAgora = false;
-            }
           }
 
+          console.log(`📡 [DB Fetch] Page ${p + 1} — URL:`, apiUrl.toString());
+
           const response = await fetch(apiUrl.toString());
-          if (!response.ok) break;
+          if (!response.ok) {
+            console.error(`📡 [DB Fetch] Failed with status ${response.status}`);
+            break;
+          }
 
           const apiRes: {
             messages?: ApiMessage[];
             nextCursor?: string;
           } = await response.json();
+
+          console.log(`📡 [DB Fetch] Page ${p + 1} response:`, {
+            messageCount: apiRes?.messages?.length || 0,
+            nextCursor: apiRes?.nextCursor,
+            firstMsg: apiRes?.messages?.[0],
+            lastMsg: apiRes?.messages?.[apiRes.messages?.length - 1],
+          });
+
           const pageMsgs = apiRes?.messages || [];
           apiMessages.push(...pageMsgs);
 
@@ -3045,9 +3037,11 @@ export default function FPChatInterface({
           lastDbNextCursor = next;
           dbCursor = next;
         }
-      } catch {
-        // DB fetch failed; still show Agora messages
+      } catch (err) {
+        console.error("📡 [DB Fetch] Error:", err);
       }
+
+      console.log("📡 [DB Fetch] Total API messages fetched:", apiMessages.length);
 
       if (lastDbNextCursor) {
         setCursor(lastDbNextCursor);
@@ -3074,7 +3068,7 @@ export default function FPChatInterface({
 
       const formatted = convertedMessages
         .map((msg: AgoraMessage) =>
-          formatMessage(msg, userId, peerId || "", selectedContact, coachInfo)
+          formatMessage(msg, userId, groupId || "", selectedContact, coachInfo)
         )
         .filter((msg: Message | null): msg is Message => msg !== null); // Filter out null messages (hidden call initiate messages, etc.)
 
@@ -3127,8 +3121,8 @@ export default function FPChatInterface({
           return bDate.getTime() - aDate.getTime();
         });
         const mostRecentMessage = sortedFormatted[0];
-        if (mostRecentMessage && peerId) {
-          onUpdateLastMessageFromHistory(peerId, mostRecentMessage);
+        if (mostRecentMessage && groupId) {
+          onUpdateLastMessageFromHistory(groupId, mostRecentMessage);
         }
       }
 
@@ -3136,7 +3130,7 @@ export default function FPChatInterface({
       setMessages((prev) => {
         // Get existing messages for this peer
         const existingMessages = prev.filter(
-          (msg: Message) => msg.peerId === peerId
+          (msg: Message) => msg.groupId === groupId
         );
 
         // Create a set of existing message IDs to avoid duplicates
@@ -3149,7 +3143,7 @@ export default function FPChatInterface({
 
         // If there are no existing messages for this peer, return fetched ones along with messages from other peers
         if (existingMessages.length === 0) {
-          const otherPeerMessages = prev.filter((msg) => msg.peerId !== peerId);
+          const otherPeerMessages = prev.filter((msg) => msg.groupId !== groupId);
           return [...otherPeerMessages, ...newFetchedMessages];
         }
 
@@ -3484,7 +3478,7 @@ export default function FPChatInterface({
           });
 
         // Return merged messages along with messages from other peers
-        const otherPeerMessages = prev.filter((msg) => msg.peerId !== peerId);
+        const otherPeerMessages = prev.filter((msg) => msg.groupId !== groupId);
         const finalMessages = [...otherPeerMessages, ...allMessages];
 
         return finalMessages;
@@ -3557,9 +3551,7 @@ export default function FPChatInterface({
       const prevScrollHeight = chatArea?.scrollHeight || 0;
       const prevScrollTop = chatArea?.scrollTop || 0;
 
-      const conversationId = peerId.startsWith("user_")
-        ? peerId
-        : `user_${peerId}`;
+      const conversationId = groupId;
 
       const pageSizeMore = 20;
       let newMessages: AgoraMessage[] = [];
@@ -3589,7 +3581,6 @@ export default function FPChatInterface({
           apiUrl.searchParams.append("limit", String(pageSizeMore));
           if (boundaryMs !== undefined) {
             apiUrl.searchParams.append("cursor", String(boundaryMs));
-            apiUrl.searchParams.append("from", String(boundaryMs));
           }
           const response = await fetch(apiUrl.toString());
           if (!response.ok) return;
@@ -3728,7 +3719,7 @@ export default function FPChatInterface({
       );
       const formatted = convertedMessages
         .map((msg: AgoraMessage) =>
-          formatMessage(msg, userId, peerId || "", selectedContact, coachInfo)
+          formatMessage(msg, userId, groupId || "", selectedContact, coachInfo)
         )
         .filter((msg: Message | null): msg is Message => msg !== null); // Filter out null messages (hidden call initiate messages, etc.)
 
@@ -3777,7 +3768,7 @@ export default function FPChatInterface({
       skipAutoScrollRef.current = true;
 
       setMessages((prev) => {
-        const existing = prev.filter((msg) => msg.peerId === peerId);
+        const existing = prev.filter((msg) => msg.groupId === groupId);
         const existingIds = new Set(existing.map((m) => m.id));
 
         // Use the same matching logic as initial fetch
@@ -4070,10 +4061,11 @@ export default function FPChatInterface({
       const scheduledDate = new Date(
         scheduledCallFromApi.call_date_time * 1000
       );
-      const now = new Date();
+      // const now = new Date();
 
       // Show if scheduled time is in the future (don't filter by one hour ago, show all future calls)
-      if (scheduledDate > now) {
+      // if (scheduledDate > now) {
+        // Create a message object for the banner
         return {
           id: `api-scheduled-${scheduledCallFromApi.call_date_time}`,
           sender: userId || "",
@@ -4084,7 +4076,7 @@ export default function FPChatInterface({
           }),
           messageType: "call_scheduled",
           timestamp: scheduledDate.toISOString(),
-          peerId: peerId || "",
+          groupId: groupId || "",
           system: {
             kind: "call_scheduled",
             payload: {
@@ -4092,7 +4084,7 @@ export default function FPChatInterface({
             },
           },
         };
-      }
+      // }
     }
 
     // No fallback to messages - only use scheduledCallFromApi as single source of truth
@@ -4114,14 +4106,17 @@ export default function FPChatInterface({
     try {
       await cancelCallWithDietitian(scheduledCallFromApi.schedule_call_id);
 
+      // Release attach-photo camera if it was left open; otherwise the OS camera indicator can stay on.
+      closeCamera();
+
       if (peerId && groupId && scheduledCallFromApi.call_date_time) {
         try {
           await sendCustomMessage({
             from: userId,
             groupId,
-            targetUserId: dietitianId,
+            targetUserId: peerId,
             isFromUser: false,
-            receiverId: dietitianId,
+            receiverId: peerId,
             type: "scheduled_call_canceled",
             data: {
               type: "scheduled_call_canceled",
@@ -4162,6 +4157,25 @@ export default function FPChatInterface({
     return false;
   };
 
+  // COMMENTED OUT: 5-minute restriction - allowing instant call initiation
+  // const canInitiateCall = (): boolean => {
+  //   if (!scheduledCallFromApi?.call_date_time) {
+  //     return false;
+  //   }
+  //
+  //   const scheduledDate = new Date(scheduledCallFromApi.call_date_time * 1000);
+  //   const now = new Date();
+  //
+  //   if (scheduledDate <= now) {
+  //     return false;
+  //   }
+  //
+  //   const timeDiff = scheduledDate.getTime() - now.getTime();
+  //   const fiveMinutesInMs = 5 * 60 * 1000;
+  //
+  //   return timeDiff <= fiveMinutesInMs;
+  // };
+
   const isBannerVisible = shouldShowBanner();
   const showScheduledBanner =
     isBannerVisible && !imageViewerUrl && !videoPlayerUrl;
@@ -4182,14 +4196,13 @@ export default function FPChatInterface({
       {showScheduledBanner && (
         <FPScheduledCallBanner
           scheduledCall={scheduledCall!}
-          onClick={
-            onInitiateCall && scheduledCallFromApi
-              ? () => {
-                  const callType = scheduledCallFromApi.call_type || "video";
-                  onInitiateCall(callType);
-                }
-              : undefined
-          }
+          scheduledCallFromApi={scheduledCallFromApi}
+          onClick={() => {
+            if (onInitiateCall && scheduledCallFromApi) {
+              const callType = scheduledCallFromApi.call_type || "video";
+              onInitiateCall(callType);
+            }
+          }}
         />
       )}
       {/* Chat Area */}
@@ -4229,14 +4242,13 @@ export default function FPChatInterface({
         )}
 
         <FPChatTab
-          peerId={peerId || ""}
+          groupId={groupId || ""}
           currentConversationMessages={currentConversationMessages}
           formatDateLabel={formatDateLabel}
           formatCurrency={formatCurrency}
           openImageViewer={openImageViewer}
           currentlyPlayingAudioRef={currentlyPlayingAudioRef}
           onPlayVideo={openVideoPlayer}
-          hasScheduledCallBanner={showScheduledBanner}
         />
       </div>
 
@@ -4262,7 +4274,7 @@ export default function FPChatInterface({
           getDraftCaption={getDraftCaption}
           selectedContact={selectedContact}
           isRecording={isRecording}
-          peerId={peerId || ""}
+          groupId={groupId || ""}
           inputResetKey={inputResetKey}
           onSend={handleSendMessage}
           onKeyPress={handleKeyPress}
@@ -4290,7 +4302,7 @@ export default function FPChatInterface({
         getDraftCaption={getDraftCaption}
         selectedContact={selectedContact}
         isRecording={isRecording}
-        peerId={peerId || ""}
+        groupId={groupId || ""}
         inputResetKey={inputResetKey}
         onSend={handleSendMessage}
         onKeyPress={handleKeyPress}
@@ -4344,7 +4356,7 @@ export default function FPChatInterface({
           onSchedule={handleSchedule}
           selectedContact={selectedContact}
           userId={userId}
-          dietitianId={dietitianId}
+          peerId={peerId}
           groupId={groupId}
           scheduledCallFromApi={scheduledCallFromApi}
           onCancelCall={handleCancelCall}

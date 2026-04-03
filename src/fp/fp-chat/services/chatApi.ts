@@ -148,7 +148,8 @@ export interface SendCustomMessageRequest {
   groupId: string;
   /** Dietitian id (same as `receiverId`) */
   targetUserId: string;
-  isFromUser: boolean;
+  /** Default true (patient). Use false for call_scheduled / scheduled_call_canceled only. */
+  isFromUser?: boolean;
   /** Dietitian id (same as `targetUserId`) */
   receiverId: string;
   type: string;
@@ -173,7 +174,7 @@ export async function sendCustomMessage(
       from: request.from,
       groupId: request.groupId,
       type: request.type,
-      isFromUser: request.isFromUser,
+      isFromUser: request.isFromUser ?? true,
       targetUserId: request.targetUserId,
       receiverId: request.receiverId,
       data: request.data,
@@ -212,9 +213,7 @@ export interface ApiMessage {
 
 export interface FetchMessagesRequest {
   conversationId: string;
-  userId: string;
-  page?: number;
-  pageSize?: number;
+  limit?: number;
   cursor?: string;
 }
 
@@ -226,28 +225,20 @@ export interface FetchMessagesResponse {
 
 /**
  * Fetches messages from backend API
- * @param request - Fetch messages request parameters
- * @returns Promise with messages array and cursor
+ * @param request - conversationId (groupId), limit (page size), cursor (last timestamp)
  */
 export async function fetchMessagesFromApi(
   request: FetchMessagesRequest
 ): Promise<FetchMessagesResponse> {
   try {
-    const { conversationId, userId, page = 1, pageSize = 20, cursor } = request;
-
-    const params = new URLSearchParams({
-      conversation_id: conversationId,
-      user_id: userId,
-      page: page.toString(),
-      page_size: pageSize.toString(),
-    });
-
-    if (cursor) {
-      params.append("cursor", cursor);
-    }
+    const { conversationId, limit = 20, cursor } = request;
 
     const apiUrl = new URL(config.api.fetchMessages);
-    apiUrl.search = params.toString();
+    apiUrl.searchParams.append("conversationId", conversationId);
+    apiUrl.searchParams.append("limit", String(limit));
+    if (cursor) {
+      apiUrl.searchParams.append("cursor", cursor);
+    }
 
     const response = await fetch(apiUrl.toString());
 
